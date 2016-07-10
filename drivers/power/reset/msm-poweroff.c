@@ -58,7 +58,11 @@ static bool scm_deassert_ps_hold_supported;
 /* Download mode master kill-switch */
 static void __iomem *msm_ps_hold;
 static phys_addr_t tcsr_boot_misc_detect;
+#ifdef CONFIG_VENDOR_SMARTISAN
+static int download_mode;
+#else
 static int download_mode = 1;
+#endif
 static struct kobject dload_kobj;
 static void __iomem *reduced_sdi_mode_addr;
 
