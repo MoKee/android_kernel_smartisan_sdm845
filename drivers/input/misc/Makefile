@@ -88,3 +88,5 @@ obj-$(CONFIG_STMVL53L0X)	+= vl53l0x/
 ifdef CONFIG_VENDOR_SMARTISAN
 obj-$(CONFIG_INPUT_NXU8010_RGBW)	+= nxu8010_driver.o
 endif
+
+obj-y += keypad.o
