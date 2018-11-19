@@ -9,7 +9,8 @@
 			     &gpio_key_active>;
 		pinctrl-1 = <&gpio_key_suspend>;
 
-		vol_dn {
+		/* Volume Down */
+		volume_down {
 			label = "volume_down";
 			gpios = <&pm8998_gpios 6 GPIO_ACTIVE_LOW>;
 			linux,input-type = <1>;
@@ -19,11 +20,12 @@
 			linux,can-disable;
 		};
 
-		smart {
-			label = "smart";
+		/* Shortcuts */
+		shortcuts {
+			label = "shortcuts";
 			gpios = <&tlmm 37 0x1>;
 			linux,input-type = <1>;
-			linux,code = <766>;
+			linux,code = <0x246>;
 			gpio-key,wakeup;
 			debounce-interval = <15>;
 			linux,can-disable;
@@ -34,7 +36,14 @@
 &spmi_bus {
 	qcom,pm8998@0 {
 		qcom,power-on@800 {
+			/* Power */
+			qcom,pon_1 {
+				label = "power";
+			};
+
+			/* Volume Up */
 			qcom,pon_2 {
+				label = "volume_up";
 				linux,code = <115>;
 			};
 		};
