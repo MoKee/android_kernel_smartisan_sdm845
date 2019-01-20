@@ -42,6 +42,7 @@
 		qcom,mdss-dsi-wr-mem-continue = <0x3c>;
 		qcom,mdss-dsi-te-using-te-pin;
 		qcom,mdss-dsi-te-check-enable;
+		qcom,dsi-supported-dfps-list = <55 60>;
 
 		qcom,mdss-dsi-display-timings {
 			timing@0{
