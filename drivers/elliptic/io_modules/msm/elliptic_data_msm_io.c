@@ -83,6 +83,11 @@ int elliptic_io_close_port(int portid){
 		return 0;//afe_stop_pseudo_port(AFE_MSM_TX_PSEUDOPORT_ID);
 }
 
+int32_t ultrasound_apr_set_parameter(int32_t port_id, uint32_t param_id,
+	u8 *user_params, int32_t length) {
+	return 0;
+}
+
 int32_t elliptic_data_io_write(uint32_t message_id, const char *data,
 	size_t data_size)
 {
