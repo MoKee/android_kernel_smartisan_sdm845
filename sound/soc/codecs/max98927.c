@@ -36,6 +36,15 @@ extern int afe_dsm_ramp_dn_cfg(uint8_t *payload, int delay_in_ms);
 static DEFINE_MUTEX(dsm_lock);
 #endif
 
+int afe_dsm_rx_set_params(uint8_t *payload, int size) { return 0; }
+int afe_dsm_rx_get_params(uint8_t *payload, int size) { return 0; }
+int afe_dsm_set_calib(uint8_t* payload) { return 0; }
+int afe_dsm_pre_calib(uint8_t* payload) { return 0; }
+int afe_dsm_post_calib(uint8_t* payload) { return 0; }
+int afe_dsm_get_calib(uint8_t* payload) { return 0; }
+int afe_dsm_get_average_calib(uint8_t* payload) { return 0; }
+int afe_dsm_ramp_dn_cfg(uint8_t *payload, int delay_in_ms) { return 0; }
+
 #define Q_DSM_ADAPTIVE_FC 9
 #define Q_DSM_ADAPTIVE_DC_RES 27
 
