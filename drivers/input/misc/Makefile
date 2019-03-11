@@ -82,3 +82,6 @@ obj-$(CONFIG_INPUT_WM831X_ON)		+= wm831x-on.o
 obj-$(CONFIG_INPUT_XEN_KBDDEV_FRONTEND)	+= xen-kbdfront.o
 obj-$(CONFIG_INPUT_YEALINK)		+= yealink.o
 obj-$(CONFIG_INPUT_IDEAPAD_SLIDEBAR)	+= ideapad_slidebar.o
+ifdef CONFIG_VENDOR_SMARTISAN
+obj-$(CONFIG_INPUT_NXU8010_RGBW)	+= nxu8010_driver.o
+endif
