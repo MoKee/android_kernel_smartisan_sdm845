@@ -50,6 +50,11 @@
 #include "../wcdcal-hwdep.h"
 #include "wcd934x-dsd.h"
 
+#ifdef CONFIG_VENDOR_SMARTISAN
+static struct snd_soc_codec *wcd934x_codec = NULL;
+extern int (*wcd_force_enable_micbias)(int micb_num, bool enable);
+#endif
+
 #define WCD934X_RATES_MASK (SNDRV_PCM_RATE_8000 | SNDRV_PCM_RATE_16000 |\
 			    SNDRV_PCM_RATE_32000 | SNDRV_PCM_RATE_48000 |\
 			    SNDRV_PCM_RATE_96000 | SNDRV_PCM_RATE_192000 |\
@@ -483,7 +488,11 @@ static const DECLARE_TLV_DB_SCALE(digital_gain, 0, 1, 0);
 static const DECLARE_TLV_DB_SCALE(line_gain, 0, 7, 1);
 static const DECLARE_TLV_DB_SCALE(analog_gain, 0, 25, 1);
 
+#ifdef CONFIG_VENDOR_SMARTISAN
+#define WCD934X_TX_UNMUTE_DELAY_MS 50
+#else
 #define WCD934X_TX_UNMUTE_DELAY_MS 40
+#endif
 
 static int tx_unmute_delay = WCD934X_TX_UNMUTE_DELAY_MS;
 module_param(tx_unmute_delay, int, 0664);
@@ -4998,6 +5007,40 @@ int tavil_codec_enable_standalone_micbias(struct snd_soc_codec *codec,
 	return rc;
 }
 EXPORT_SYMBOL(tavil_codec_enable_standalone_micbias);
+
+#ifdef CONFIG_VENDOR_SMARTISAN
+int wcd934x_force_enable_micbias(int micb_num, bool enable)
+{
+	int rc;
+	struct snd_soc_codec *codec = wcd934x_codec;
+	struct tavil_priv *tavil = snd_soc_codec_get_drvdata(codec);
+
+	if (codec) {
+		dev_dbg(codec->dev, "%s: begin %s micbias-%d\n",
+			__func__, enable ? "enable" : "disable", micb_num);
+
+		if (enable) {
+			wcd_resmgr_enable_master_bias(tavil->resmgr);
+			tavil_cdc_mclk_enable(codec, true);
+			rc = tavil_micbias_control(codec, micb_num,
+				MICB_ENABLE, true);
+			/* Wait for 1ms for better cnp */
+			usleep_range(1000, 1100);
+			tavil_cdc_mclk_enable(codec, false);
+		} else {
+			rc = tavil_micbias_control(codec, micb_num,
+				MICB_DISABLE, true);
+			wcd_resmgr_disable_master_bias(tavil->resmgr);
+		}
+	} else {
+		rc = -1;
+		pr_err("wcd934x_codec is NULL\n");
+	}
+
+	return rc;
+}
+EXPORT_SYMBOL(wcd934x_force_enable_micbias);
+#endif
 
 static int tavil_codec_force_enable_micbias(struct snd_soc_dapm_widget *w,
 					    struct snd_kcontrol *kcontrol,
@@ -10069,6 +10112,11 @@ static int tavil_soc_codec_probe(struct snd_soc_codec *codec)
 	struct snd_soc_dapm_context *dapm = snd_soc_codec_get_dapm(codec);
 	int i, ret;
 	void *ptr = NULL;
+
+#ifdef CONFIG_VENDOR_SMARTISAN
+	wcd934x_codec = codec;
+	wcd_force_enable_micbias = wcd934x_force_enable_micbias;
+#endif
 
 	control = dev_get_drvdata(codec->dev->parent);
 
