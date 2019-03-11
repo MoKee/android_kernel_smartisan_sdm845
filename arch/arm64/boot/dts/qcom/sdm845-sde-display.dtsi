@@ -29,6 +29,7 @@
 #include "dsi-panel-nt35597-dualmipi-wqxga-cmd.dtsi"
 #include "dsi-panel-nt36850-truly-dualmipi-wqhd-cmd.dtsi"
 #include "dsi-panel-test-dualmipi-oled-cmd.dtsi"
+#include "dsi-panel-td4362-1080p-cmd.dtsi"
 #include <dt-bindings/clock/mdss-10nm-pll-clk.h>
 
 &soc {
@@ -43,7 +44,7 @@
 			qcom,supply-max-voltage = <1800000>;
 			qcom,supply-enable-load = <62000>;
 			qcom,supply-disable-load = <80>;
-			qcom,supply-post-on-sleep = <20>;
+			qcom,supply-post-on-sleep = <10>;
 		};
 
 		qcom,panel-supply-entry@1 {
@@ -53,6 +54,7 @@
 			qcom,supply-max-voltage = <6000000>;
 			qcom,supply-enable-load = <100000>;
 			qcom,supply-disable-load = <100>;
+			qcom,supply-post-off-sleep = <10>;
 		};
 
 		qcom,panel-supply-entry@2 {
@@ -62,7 +64,7 @@
 			qcom,supply-max-voltage = <6000000>;
 			qcom,supply-enable-load = <100000>;
 			qcom,supply-disable-load = <100>;
-			qcom,supply-post-on-sleep = <20>;
+			qcom,supply-post-on-sleep = <10>;
 		};
 	};
 
@@ -445,7 +447,7 @@
 		pinctrl-1 = <&sde_dsi_suspend &sde_te_suspend>;
 		qcom,platform-te-gpio = <&tlmm 10 0>;
 		qcom,platform-reset-gpio = <&tlmm 6 0>;
-		qcom,panel-mode-gpio = <&tlmm 52 0>;
+		//qcom,panel-mode-gpio = <&tlmm 52 0>;
 
 		qcom,dsi-panel = <&dsi_dual_nt35597_cmd>;
 		vddio-supply = <&pm8998_l14>;
@@ -502,6 +504,30 @@
 		oled-vdda-supply = <&pm8998_l22>;
 	};
 
+	dsi_td4362_1080_cmd_display: qcom,dsi-display@18 {
+			compatible = "qcom,dsi-display";
+			label = "dsi_td4362_1080_cmd_display";
+			qcom,display-type = "primary";
+
+			qcom,dsi-ctrl = <&mdss_dsi0>;
+			qcom,dsi-phy = <&mdss_dsi_phy0>;
+			clocks = <&mdss_dsi0_pll BYTECLK_MUX_0_CLK>,
+				<&mdss_dsi0_pll PCLK_MUX_0_CLK>;
+			clock-names = "src_byte_clk", "src_pixel_clk";
+
+			pinctrl-names = "panel_active", "panel_suspend";
+			pinctrl-0 = <&sde_dsi_active &sde_te_active>;
+			pinctrl-1 = <&sde_dsi_suspend &sde_te_suspend>;
+			qcom,platform-te-gpio = <&tlmm 10 0>;
+			qcom,platform-reset-gpio = <&tlmm 6 0>;
+			//qcom,panel-mode-gpio = <&tlmm 52 0>;
+
+			qcom,dsi-panel = <&dsi_td4362_1080_cmd>;
+			vddio-supply = <&pm8998_l14>;
+			lab-supply = <&lab_regulator>;
+			ibb-supply = <&ibb_regulator>;
+		};
+
 	sde_wb: qcom,wb-display@0 {
 		compatible = "qcom,wb-display";
 		cell-index = <0>;
@@ -522,10 +548,12 @@
 	qcom,ext-disp = <&ext_disp>;
 
 	pinctrl-names = "mdss_dp_active", "mdss_dp_sleep";
-	pinctrl-0 = <&sde_dp_aux_active &sde_dp_usbplug_cc_active>;
-	pinctrl-1 = <&sde_dp_aux_suspend &sde_dp_usbplug_cc_suspend>;
+	pinctrl-0 = <&sde_dp_usbplug_cc_active>;
+	pinctrl-1 = <&sde_dp_usbplug_cc_suspend>;
 	qcom,aux-en-gpio = <&tlmm 43 0>;
 	qcom,aux-sel-gpio = <&tlmm 51 0>;
+	qcom,uart-sel-gpio = <&tlmm 103 0>;
+	qcom,mic-sel-gpio = <&pm8998_gpios 17 0x00>;
 	qcom,usbplug-cc-gpio = <&tlmm 38 0>;
 };
 
@@ -549,6 +577,27 @@
 				07 05 03 04 00];
 			qcom,display-topology = <2 0 2>,
 						<1 0 2>;
+			qcom,default-topology-index = <0>;
+		};
+	};
+};
+
+&dsi_td4362_1080_cmd {
+	qcom,mdss-dsi-t-clk-post = <0x14>;
+	qcom,mdss-dsi-t-clk-pre = <0x52>;
+	qcom,ulps-enabled;
+	qcom,esd-check-enabled;
+	qcom,mdss-dsi-panel-status-check-mode = "reg_read";
+	qcom,mdss-dsi-panel-status-command = [06 01 00 01 00 00 01 0a];
+	qcom,mdss-dsi-panel-status-command-state = "dsi_hs_mode";
+	qcom,mdss-dsi-panel-status-value = <0x1c>;
+	qcom,mdss-dsi-panel-on-check-value = <0x1c>;
+	qcom,mdss-dsi-panel-status-read-length = <1>;
+	qcom,mdss-dsi-display-timings {
+		timing@0{
+			qcom,mdss-dsi-panel-phy-timings = [00 22 08 09 25 23 09
+				09 06 03 04 00];
+			qcom,display-topology = <1 0 1>;
 			qcom,default-topology-index = <0>;
 		};
 	};

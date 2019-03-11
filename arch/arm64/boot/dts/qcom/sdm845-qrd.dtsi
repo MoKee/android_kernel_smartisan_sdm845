@@ -214,9 +214,6 @@
 	qcom,dsi-display-active;
 };
 
-&wil6210 {
-	status = "ok";
-};
 
 &ext_5v_boost {
 	status = "ok";

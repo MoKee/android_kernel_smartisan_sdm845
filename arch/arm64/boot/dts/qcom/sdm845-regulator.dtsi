@@ -519,9 +519,9 @@
 		pm8998_l19: regulator-l19 {
 			regulator-name = "pm8998_l19";
 			qcom,set = <RPMH_REGULATOR_SET_ALL>;
-			regulator-min-microvolt = <2856000>;
+			regulator-min-microvolt = <3000000>;
 			regulator-max-microvolt = <3104000>;
-			qcom,init-voltage = <2856000>;
+			qcom,init-voltage = <3104000>;
 			qcom,init-mode = <RPMH_REGULATOR_MODE_LDO_LPM>;
 		};
 	};

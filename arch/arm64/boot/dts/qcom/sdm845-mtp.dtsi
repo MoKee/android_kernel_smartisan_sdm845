@@ -13,7 +13,6 @@
 #include <dt-bindings/gpio/gpio.h>
 #include "sdm845-pmic-overlay.dtsi"
 #include "sdm845-pinctrl-overlay.dtsi"
-#include "sdm845-camera-sensor-mtp.dtsi"
 #include "smb1355.dtsi"
 
 &vendor {
@@ -39,6 +38,7 @@
 	};
 };
 
+/*
 &soc {
 	gpio_keys {
 		compatible = "gpio-keys";
@@ -80,6 +80,7 @@
 		};
 	};
 };
+*/
 
 &labibb {
 	status = "ok";
@@ -94,6 +95,16 @@
 	qcom,mdss-dsi-mode-sel-gpio-state = "dual_port";
 	qcom,panel-mode-gpio = <&tlmm 52 0>;
 	qcom,platform-reset-gpio = <&tlmm 6 0>;
+};
+
+&dsi_td4362_1080_cmd {
+	qcom,panel-supply-entries = <&dsi_panel_pwr_supply>;
+	qcom,mdss-dsi-bl-pmic-control-type = "bl_ctrl_wled";
+	qcom,mdss-dsi-bl-min-level = <1>;
+	qcom,mdss-dsi-bl-max-level = <4095>;
+	qcom,mdss-dsi-mode-sel-gpio-state = "single_port";
+	qcom,platform-reset-gpio = <&tlmm 6 0>;
+	qcom,platform-te-gpio = <&tlmm 10 0>;
 };
 
 &dsi_dual_nt35597_truly_cmd {
@@ -184,14 +195,19 @@
 	qcom,platform-reset-gpio = <&tlmm 6 0>;
 	qcom,platform-te-gpio = <&tlmm 10 0>;
 };
-
+/*
 &dsi_nt35597_truly_dsc_cmd_display {
+	qcom,dsi-display-active;
+};
+*/
+
+&dsi_td4362_1080_cmd_display {
 	qcom,dsi-display-active;
 };
 
 &pmi8998_wled {
 	status = "okay";
-	qcom,led-strings-list = [01 02];
+	qcom,led-strings-list = [01 02 03];
 };
 
 &pmi8998_haptics {
@@ -226,6 +242,46 @@
 
 	qcom,vddp-ref-clk-supply = <&pm8998_l2>;
 	qcom,vddp-ref-clk-max-microamp = <100>;
+
+	status = "ok";
+};
+
+&extcon_storage_cd {
+	gpio = <&tlmm 126 GPIO_ACTIVE_LOW>;
+	debounce-ms = <200>;
+	irq-flags = <IRQ_TYPE_EDGE_BOTH>;
+
+	pinctrl-names = "default";
+	pinctrl-0 = <&storage_cd>;
+
+	status = "ok";
+};
+
+&ufsphy_card {
+	compatible = "qcom,ufs-phy-qmp-v3";
+
+	vdda-phy-supply = <&pm8998_l1>; /* 0.88v */
+	vdda-pll-supply = <&pm8998_l26>; /* 1.2v */
+	vdda-phy-max-microamp = <62900>;
+	vdda-pll-max-microamp = <18300>;
+
+	status = "ok";
+};
+
+&ufshc_card {
+	vdd-hba-supply = <&ufs_card_gdsc>;
+	vdd-hba-fixed-regulator;
+	vcc-supply = <&pm8998_l21>;
+	/*vccq2-supply = <&pm8998_s4>;*/
+	vccq2-gpios = <&tlmm 11 0x1>;
+	vcc-max-microamp = <300000>;
+	vccq2-max-microamp = <300000>;
+
+	qcom,vddp-ref-clk-supply = <&pm8998_l2>;
+	qcom,vddp-ref-clk-max-microamp = <100>;
+
+	/*extcon = <&extcon_storage_cd>;*/
+	non-removable;
 
 	status = "ok";
 };
@@ -272,9 +328,8 @@
 &vendor {
 	mtp_batterydata: qcom,battery-data {
 		qcom,batt-id-range-pct = <15>;
-		#include "fg-gen3-batterydata-itech-3000mah.dtsi"
-		#include "fg-gen3-batterydata-ascent-3450mah.dtsi"
-		#include "fg-gen3-batterydata-demo-6000mah.dtsi"
+		#include "fg-gen3-batterydata-trident-jiade-3600mah.dtsi"
+		#include "fg-gen3-batterydata-trident-atl-3600mah.dtsi"
 	};
 
 	extcon_usb1: extcon_usb1 {
@@ -284,6 +339,20 @@
 		pinctrl-names = "default";
 		pinctrl-0 = <&usb2_vbus_det_default>;
 	};
+
+	usb1_vbus_vreg: usb1_vbus_vreg {
+		compatible = "regulator-fixed";
+		regulator-name = "usb_vbus_vreg";
+		gpio = <&pmi8998_gpios 2 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+
+		/* Typical EN-to-VBUS turn on time for NX5P1100 */
+		regulator-enable-ramp-delay = <630>;
+
+		pinctrl-names = "default";
+		pinctrl-0 = <&usb2_vbus_boost_default>;
+	};
+
 };
 
 &pmi8998_fg {
@@ -332,6 +401,22 @@
 	};
 };
 
+&qupv3_se14_i2c {
+	status = "ok";
+	ti@10 {
+		compatible = "ti,re-driver";
+		reg = <0x10>;
+		vddio-supply = <&pm8998_l14>;
+		ti,uart-sel = <&tlmm 103 0x00>;
+		ti,dvdd-en = <&tlmm 36 0x00>;
+		ti,aux-sel = <&tlmm 86 0x00>;
+		ti,aux-oe = <&tlmm 87 0x00>;
+		pinctrl-names = "uart_active", "uart_suspend";
+		pinctrl-0 = <&uart_sel_active &usb_dp_dvdd_en_default>;
+		pinctrl-1 = <&uart_sel_sleep>;
+	};
+};
+
 &qupv3_se10_i2c {
 	status = "ok";
 };
@@ -343,6 +428,7 @@
 &usb1 {
 	status = "okay";
 	extcon = <&extcon_usb1>;
+	vbus_dwc3-supply = <&usb1_vbus_vreg>;
 };
 
 &qusb_phy1 {
@@ -541,8 +627,4 @@
 			};
 		};
 	};
-};
-
-&wil6210 {
-	status = "ok";
 };
