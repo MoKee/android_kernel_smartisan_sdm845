@@ -21,7 +21,11 @@
 
 #include "sdm845-sde-display.dtsi"
 #include "sdm845-mtp.dtsi"
-#include "sdm845-audio-overlay.dtsi"
+#include "trident-audio-overlay.dtsi"
+#include "trident-camera-sensor.dtsi"
+#include "sdm845-key-overlay.dtsi"
+#include "sdm845-mtp-tp-overlay.dtsi"
+#include "trident-fingerprint.dtsi"
 
 / {
 	model = "Qualcomm Technologies, Inc. SDM845 v1 MTP";

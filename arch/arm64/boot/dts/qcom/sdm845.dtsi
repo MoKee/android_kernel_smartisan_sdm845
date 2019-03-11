@@ -47,6 +47,7 @@
 		spi0 = &qupv3_se8_spi;
 		i2c0 = &qupv3_se10_i2c;
 		i2c1 = &qupv3_se3_i2c;
+		i2c14 = &qupv3_se14_i2c;
 		hsuart0 = &qupv3_se6_4uart;
 	};
 
@@ -530,7 +531,7 @@
 
 		removed_region: removed_region@85fc0000 {
 			no-map;
-			reg = <0 0x85fc0000 0 0x2f40000>;
+			reg = <0 0x85fc0000 0 0x4140000>;
 		};
 
 		qseecom_mem: qseecom_region@0x8ab00000 {
@@ -1276,7 +1277,7 @@
 
 	clock_debug: qcom,cc-debug@100000 {
 		compatible = "qcom,debugcc-sdm845";
-		qcom,cc-count = <5>;
+		qcom,cc-count = <6>;
 		qcom,gcc = <&clock_gcc>;
 		qcom,videocc = <&clock_videocc>;
 		qcom,camcc = <&clock_camcc>;
@@ -1436,10 +1437,109 @@
 		qcom,pm-qos-default-cpu = <0>;
 
 		pinctrl-names = "dev-reset-assert", "dev-reset-deassert";
-		pinctrl-0 = <&ufs_dev_reset_assert>;
+		pinctrl-0 = <&ufs_dev_reset_assert &hall_pin_active>;
 		pinctrl-1 = <&ufs_dev_reset_deassert>;
 
 		resets = <&clock_gcc GCC_UFS_PHY_BCR>;
+		reset-names = "core_reset";
+
+		status = "disabled";
+	};
+
+	extcon_storage_cd: extcon_storage_cd {
+		compatible = "extcon-gpio";
+		extcon-id = <62>; /* EXTCON_MECHANICAL */
+		status = "disabled";
+	};
+
+	ufsphy_card: ufsphy_card@1da7000 {
+		reg = <0x1da7000 0xda8>; /* PHY regs */
+		reg-names = "phy_mem";
+		#phy-cells = <0>;
+
+		lanes-per-direction = <1>;
+
+		clock-names = "ref_clk_src",
+			"ref_clk",
+			"ref_aux_clk";
+		clocks = <&clock_rpmh RPMH_CXO_CLK>,
+			<&clock_gcc GCC_UFS_CARD_CLKREF_CLK>,
+			<&clock_gcc GCC_UFS_CARD_PHY_AUX_HW_CTL_CLK>;
+
+		status = "disabled";
+	};
+
+	ufshc_card: ufshc_card@1da4000 {
+		compatible = "qcom,ufshc";
+		reg = <0x1da4000 0x2500>;
+		interrupts = <0 125 0>;
+		phys = <&ufsphy_card>;
+		phy-names = "ufsphy";
+
+		lanes-per-direction = <1>;
+		dev-ref-clk-freq = <0>; /* 19.2 MHz */
+
+		clock-names =
+			"core_clk",
+			"bus_aggr_clk",
+			"iface_clk",
+			"core_clk_unipro",
+			"core_clk_ice",
+			"ref_clk",
+			"tx_lane0_sync_clk",
+			"rx_lane0_sync_clk";
+		clocks =
+			<&clock_gcc GCC_UFS_CARD_AXI_HW_CTL_CLK>,
+			<&clock_gcc GCC_AGGRE_UFS_CARD_AXI_HW_CTL_CLK>,
+			<&clock_gcc GCC_UFS_CARD_AHB_CLK>,
+			<&clock_gcc GCC_UFS_CARD_UNIPRO_CORE_HW_CTL_CLK>,
+			<&clock_gcc GCC_UFS_CARD_ICE_CORE_HW_CTL_CLK>,
+			<&clock_rpmh RPMH_CXO_CLK>,
+			<&clock_gcc GCC_UFS_CARD_TX_SYMBOL_0_CLK>,
+			<&clock_gcc GCC_UFS_CARD_RX_SYMBOL_0_CLK>;
+		freq-table-hz =
+			<50000000 200000000>,
+			<0 0>,
+			<0 0>,
+			<37500000 150000000>,
+			<75000000 300000000>,
+			<0 0>,
+			<0 0>,
+			<0 0>;
+
+		qcom,msm-bus,name = "ufshc_card";
+		qcom,msm-bus,num-cases = <9>;
+		qcom,msm-bus,num-paths = <2>;
+		qcom,msm-bus,vectors-KBps =
+		<122 512 0 0>, <1 756 0 0>,          /* No vote */
+		<122 512 922 0>, <1 756 1000 0>,     /* PWM G1 */
+		<122 512 127796 0>, <1 756 1000 0>,  /* HS G1 RA */
+		<122 512 255591 0>, <1 756 1000 0>,  /* HS G2 RA */
+		<122 512 2097152 0>, <1 756 102400 0>,  /* HS G3 RA */
+		<122 512 149422 0>, <1 756 1000 0>,  /* HS G1 RB */
+		<122 512 298189 0>, <1 756 1000 0>,  /* HS G2 RB */
+		<122 512 2097152 0>, <1 756 102400 0>,  /* HS G3 RB */
+		<122 512 7643136 0>, <1 756 307200 0>; /* Max. bandwidth */
+		qcom,bus-vector-names = "MIN",
+		"PWM_G1_L1",
+		"HS_RA_G1_L1", "HS_RA_G2_L1", "HS_RA_G3_L1",
+		"HS_RB_G1_L1", "HS_RB_G2_L1", "HS_RB_G3_L1",
+		"MAX";
+
+		/* PM QoS */
+		qcom,pm-qos-cpu-groups = <0x0f 0xf0>;
+		qcom,pm-qos-cpu-group-latency-us = <70 70>;
+		qcom,pm-qos-default-cpu = <0>;
+
+		pinctrl-names = "dev-reset-assert", "dev-reset-deassert";
+		pinctrl-0 = <&ufs_dev_card_reset_assert>;
+		pinctrl-1 = <&ufs_dev_card_reset_deassert>;
+		/*
+		 * Note: this instance doesn't have control over UFS device
+		 * reset
+		 */
+
+		resets = <&clock_gcc GCC_UFS_CARD_BCR>;
 		reset-names = "core_reset";
 
 		status = "disabled";
@@ -2490,13 +2590,13 @@
 		compatible = "qcom,qbt1000";
 		clock-names = "core", "iface";
 		clock-frequency = <25000000>;
-		qcom,ipc-gpio = <&tlmm 121 0>;
+		/* qcom,ipc-gpio = <&tlmm 121 0>; */
 		qcom,finger-detect-gpio = <&pm8998_gpios 5 0>;
 	};
 
 	qcom_seecom: qseecom@86d00000 {
 		compatible = "qcom,qseecom";
-		reg = <0x86d00000 0x2200000>;
+		reg = <0x86d00000 0x3400000>;
 		reg-names = "secapp-region";
 		qcom,hlos-num-ce-hw-instances = <1>;
 		qcom,hlos-ce-hw-instance = <0>;
@@ -3877,10 +3977,10 @@
 			"MSM_TSIF1_PHYS",
 			"MSM_TSPP_PHYS",
 			"MSM_TSPP_BAM_PHYS";
-		interrupts = <0 121 0>, /* TSIF_TSPP_IRQ */
-			<0 119 0>, /* TSIF0_IRQ */
+		interrupts = <0 119 0>, /* TSIF0_IRQ */
 			<0 120 0>, /* TSIF1_IRQ */
 			<0 122 0>; /* TSIF_BAM_IRQ */
+			/*<0 121 0>,  TSIF_TSPP_IRQ */
 		interrupt-names = "TSIF_TSPP_IRQ",
 			"TSIF0_IRQ",
 			"TSIF1_IRQ",
