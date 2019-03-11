@@ -21,7 +21,6 @@ static long cam_eeprom_subdev_ioctl(struct v4l2_subdev *sd,
 {
 	int                       rc     = 0;
 	struct cam_eeprom_ctrl_t *e_ctrl = v4l2_get_subdevdata(sd);
-
 	switch (cmd) {
 	case VIDIOC_CAM_CONTROL:
 		rc = cam_eeprom_driver_cmd(e_ctrl, arg);

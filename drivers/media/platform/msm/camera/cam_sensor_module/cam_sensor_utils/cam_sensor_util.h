@@ -56,4 +56,8 @@ int msm_camera_fill_vreg_params(struct cam_hw_soc_info *soc_info,
 
 int32_t cam_sensor_update_power_settings(void *cmd_buf,
 	int cmd_length, struct cam_sensor_power_ctrl_t *power_info);
+
+ struct i2c_settings_list*
+	cam_sensor_get_i2c_ptr(struct i2c_settings_array *i2c_reg_settings,
+		uint32_t size);
 #endif /* _CAM_SENSOR_UTIL_H_ */

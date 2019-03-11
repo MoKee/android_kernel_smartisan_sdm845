@@ -659,7 +659,7 @@ static int __cam_req_mgr_validate_sof_cnt(
 		link->link_hdl, link->sof_counter,
 		sync_link->sof_counter, sync_diff, link->sync_self_ref);
 
-	if (sync_diff != link->sync_self_ref) {
+	if (sync_diff > SYNC_LINK_SOF_CNT_MAX_LMT) {
 		link->sync_link->frame_skip_flag = true;
 		CAM_WARN(CAM_CRM,
 			"Detected anomaly, skip link_hdl %x self_counter=%lld other_counter=%lld sync_self_ref=%lld",
@@ -703,6 +703,14 @@ static int __cam_req_mgr_process_sync_req(
 		link->link_hdl, req_id, link->sync_self_ref, link->sof_counter,
 		link->frame_skip_flag, link->sync_link->sync_self_ref);
 
+	if (sync_link->sync_link_sof_skip) {
+		CAM_DBG(CAM_CRM,
+			"No req applied on corresponding SOF on sync link: %x",
+			sync_link->link_hdl);
+		sync_link->sync_link_sof_skip = false;
+		return -EINVAL;
+	}
+
 	if (link->sof_counter == -1) {
 		__cam_req_mgr_sof_cnt_initialize(link);
 	} else if ((link->frame_skip_flag) &&
@@ -720,6 +728,7 @@ static int __cam_req_mgr_process_sync_req(
 		CAM_DBG(CAM_CRM,
 			"Req: %lld [My link]not available link: %x, rc=%d",
 			req_id, link->link_hdl, rc);
+		link->sync_link_sof_skip = true;
 		goto failure;
 	}
 
@@ -768,6 +777,7 @@ static int __cam_req_mgr_process_sync_req(
 			"Req: %lld [Other link] not ready to apply on link: %x",
 			req_id, sync_link->link_hdl);
 		rc = -EPERM;
+		link->sync_link_sof_skip = true;
 		goto failure;
 	}
 
@@ -883,6 +893,9 @@ static int __cam_req_mgr_process_req(struct cam_req_mgr_core_link *link,
 			link->state = CAM_CRM_LINK_STATE_READY;
 		}
 		spin_unlock_bh(&link->link_state_spin_lock);
+
+		if (link->sync_link_sof_skip)
+			link->sync_link_sof_skip = false;
 
 		if (link->trigger_mask == link->subscribe_event) {
 			slot->status = CRM_SLOT_STATUS_REQ_APPLIED;
@@ -2274,21 +2287,22 @@ int cam_req_mgr_link(struct cam_req_mgr_link_info *link_info)
 		return -EINVAL;
 	}
 
+	mutex_lock(&g_crm_core_dev->crm_lock);
+
 	/* session hdl's priv data is cam session struct */
 	cam_session = (struct cam_req_mgr_core_session *)
 		cam_get_device_priv(link_info->session_hdl);
 	if (!cam_session) {
 		CAM_DBG(CAM_CRM, "NULL pointer");
+        mutex_unlock(&g_crm_core_dev->crm_lock);
 		return -EINVAL;
 	}
-
-	mutex_lock(&g_crm_core_dev->crm_lock);
 
 	/* Allocate link struct and map it with session's request queue */
 	link = __cam_req_mgr_reserve_link(cam_session);
 	if (!link) {
 		CAM_ERR(CAM_CRM, "failed to reserve new link");
-		mutex_unlock(&g_crm_core_dev->crm_lock);
+        mutex_unlock(&g_crm_core_dev->crm_lock);
 		return -EINVAL;
 	}
 	CAM_DBG(CAM_CRM, "link reserved %pK %x", link, link->link_hdl);
@@ -2514,11 +2528,13 @@ int cam_req_mgr_sync_config(
 	link1->sof_counter = -1;
 	link1->sync_self_ref = -1;
 	link1->frame_skip_flag = false;
+	link1->sync_link_sof_skip = false;
 	link1->sync_link = link2;
 
 	link2->sof_counter = -1;
 	link2->sync_self_ref = -1;
 	link2->frame_skip_flag = false;
+	link2->sync_link_sof_skip = false;
 	link2->sync_link = link1;
 
 	cam_session->sync_mode = sync_info->sync_mode;
@@ -2619,7 +2635,7 @@ int cam_req_mgr_link_control(struct cam_req_mgr_link_control *control)
 		link = (struct cam_req_mgr_core_link *)
 			cam_get_device_priv(control->link_hdls[i]);
 		if (!link) {
-			CAM_ERR(CAM_CRM, "Link(%d) is NULL on session 0x%x",
+			CAM_ERR_RATE_LIMIT(CAM_CRM, "Link(%d) is NULL on session 0x%x",
 				i, control->session_hdl);
 			rc = -EINVAL;
 			break;

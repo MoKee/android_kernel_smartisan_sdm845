@@ -16,6 +16,7 @@
 #include "cam_sensor_util.h"
 #include "cam_soc_util.h"
 #include "cam_trace.h"
+#include <smartisan/hwstate.h>
 
 
 static void cam_sensor_update_req_mgr(
@@ -239,12 +240,13 @@ static int32_t cam_sensor_i2c_pkt_parse(struct cam_sensor_ctrl_t *s_ctrl,
 }
 
 static int32_t cam_sensor_i2c_modes_util(
-	struct camera_io_master *io_master_info,
+	struct cam_sensor_ctrl_t *s_ctrl,
 	struct i2c_settings_list *i2c_list)
 {
 	int32_t rc = 0;
 	uint32_t i, size;
-
+	uint8_t * tmp_read_otp = NULL;
+        struct camera_io_master *io_master_info  = &(s_ctrl->io_master_info);
 	if (i2c_list->op_code == CAM_SENSOR_I2C_WRITE_RANDOM) {
 		rc = camera_io_dev_write(io_master_info,
 			&(i2c_list->i2c_settings));
@@ -297,6 +299,54 @@ static int32_t cam_sensor_i2c_modes_util(
 				return rc;
 			}
 		}
+	} else if (i2c_list->op_code == CAM_SENSOR_I2C_READ_SEQ) {
+		size = i2c_list->i2c_settings.size;
+		tmp_read_otp = s_ctrl->i2c_data.data_read_otp;
+		for (i = 0; i < size; i++) {
+			rc = camera_io_dev_read_seq(
+			io_master_info,
+			i2c_list->i2c_settings.
+				reg_setting[i].reg_addr,
+			tmp_read_otp,
+			i2c_list->i2c_settings.addr_type,
+			i2c_list->i2c_settings.data_type);
+			tmp_read_otp += i2c_list->i2c_settings.data_type;
+			if (rc < 0) {
+				CAM_ERR(CAM_SENSOR,
+					"i2c read seq apply setting Fail: %d", rc);
+				return rc;
+			}else{
+				CAM_ERR(CAM_SENSOR,
+					"i2c read seq apply setting Ok");
+
+		        }
+		}
+	}
+
+	return rc;
+}
+
+int32_t cam_sensor_update_i2c_info2(struct cam_sensor_i2c_info_t *i2c_info,
+	struct cam_sensor_ctrl_t *s_ctrl)
+{
+	int32_t rc = 0;
+	struct cam_sensor_cci_client   *cci_client = NULL;
+
+	if (s_ctrl->io_master_info.master_type == CCI_MASTER) {
+		cci_client = s_ctrl->io_master_info.cci_client;
+		if (!cci_client) {
+			CAM_ERR(CAM_SENSOR, "failed: cci_client %pK",
+				cci_client);
+			return -EINVAL;
+		}
+		cci_client->cci_i2c_master = s_ctrl->cci_i2c_master;
+		cci_client->sid = i2c_info->slave_addr >> 1;
+		cci_client->retries = 3;
+		cci_client->id_map = 0;
+		cci_client->i2c_freq_mode = i2c_info->i2c_freq_mode;
+		CAM_DBG(CAM_SENSOR, " Master: %d sid: %d freq_mode: %d",
+			cci_client->cci_i2c_master, i2c_info->slave_addr,
+			i2c_info->i2c_freq_mode);
 	}
 
 	return rc;
@@ -542,9 +592,198 @@ int cam_sensor_match_id(struct cam_sensor_ctrl_t *s_ctrl)
 	if (cam_sensor_id_by_mask(s_ctrl, chipid) != slave_info->sensor_id) {
 		CAM_ERR(CAM_SENSOR, "chip id %x does not match %x",
 				chipid, slave_info->sensor_id);
-		return -ENODEV;
+        if(!((slave_info->sensor_id == 0x333) &&  (cam_sensor_id_by_mask(s_ctrl, chipid) == 0x363)))
+        {
+		 return -ENODEV;
+        }
 	}
 	return rc;
+}
+
+int32_t cam_otp_dev_read(struct cam_sensor_ctrl_t *s_ctrl,struct cam_control   *cmd)
+{
+	int rc = 0;
+
+	/* check range */
+	if (cmd->size  > s_ctrl-> i2c_data.num_data_read_otp  || !s_ctrl-> i2c_data.data_read_otp) {
+		CAM_ERR(CAM_SENSOR,"%s: Invalid size. exp %u, req %u\n", __func__,
+			s_ctrl-> i2c_data.num_data_read_otp,
+			cmd->size);
+		return -1;
+	}
+	CAM_ERR(CAM_SENSOR, "ready to copy to user cmd->size:%d",cmd->size);
+	if (copy_to_user((void __user *)cmd->handle,s_ctrl-> i2c_data.data_read_otp,cmd->size)) {
+		CAM_ERR(CAM_SENSOR, "Failed Copy to User");
+		return -1;
+	}
+	CAM_ERR(CAM_SENSOR, "copy to user cmd->size:%d  ok..",cmd->size);
+	return rc;
+}
+
+int32_t cam_otp_dev_config(struct cam_sensor_ctrl_t *s_ctrl,struct cam_control   *cmd)
+{
+        int rc = 0,i=0;
+        struct i2c_settings_list_otp_seq *otp_seq = NULL;
+	struct i2c_settings_list  *i2c_list;
+	struct cam_sensor_power_setting *pu = NULL;
+	struct cam_sensor_power_setting *pd = NULL;
+	struct cam_sensor_power_ctrl_t *power_info =
+		&s_ctrl->sensordata->power_info;
+	
+	otp_seq = kzalloc(sizeof(struct i2c_settings_list_otp_seq ),GFP_KERNEL);
+	if (!otp_seq) {
+		rc = -ENOMEM;
+		CAM_ERR(CAM_SENSOR, "failed");
+		goto otp_seq_free;
+	}
+         if (copy_from_user(otp_seq, (void __user *) cmd->handle,
+	          sizeof(struct i2c_settings_list_otp_seq))) {
+	    CAM_ERR(CAM_SENSOR, "Failed cp eeprom_info");
+	    return -1;
+         }
+
+      if(!power_info->power_setting || power_info->power_setting_size <= 0 
+	   || ! power_info->power_down_setting || power_info->power_down_setting_size <= 0)
+     {
+		pu = kzalloc(sizeof(struct cam_sensor_power_setting) *
+			otp_seq->power_setting_array.power_setting_size, GFP_KERNEL);
+		if (!pu) {
+			return  -ENOMEM;
+		}
+
+		pd = kzalloc(sizeof(struct cam_sensor_power_setting) *
+			otp_seq->power_setting_array.power_down_setting_size, GFP_KERNEL);
+		if (!pd) {
+			kfree(pu);
+			return -ENOMEM;
+		}
+		CAM_ERR(CAM_SENSOR,"power_setting %p, size %d",power_info->power_setting,power_info->power_setting_size);
+		power_info->power_setting = pu;
+		power_info->power_down_setting = pd;
+	        memcpy(pu, otp_seq->power_setting_array.power_setting,otp_seq->power_setting_array.power_setting_size*sizeof(struct cam_sensor_power_setting));
+	        memcpy(pd, otp_seq->power_setting_array.power_down_setting,otp_seq->power_setting_array.power_down_setting_size*sizeof(struct cam_sensor_power_setting));
+
+		power_info->power_setting_size = otp_seq->power_setting_array.power_setting_size;
+		power_info->power_down_setting_size= otp_seq->power_setting_array.power_down_setting_size;
+
+		/* Parse and fill vreg params for powerup settings */
+		rc = msm_camera_fill_vreg_params(
+			&s_ctrl->soc_info,
+			s_ctrl->sensordata->power_info.power_setting,
+			s_ctrl->sensordata->power_info.power_setting_size);
+		if (rc < 0) {
+			CAM_ERR(CAM_SENSOR,
+				"Fail in filling vreg params for PUP rc %d",
+				 rc);
+			kfree(pu);
+			kfree(pd);
+			return -1;
+		}
+
+		/* Parse and fill vreg params for powerdown settings*/
+		rc = msm_camera_fill_vreg_params(
+			&s_ctrl->soc_info,
+			s_ctrl->sensordata->power_info.power_down_setting,
+			s_ctrl->sensordata->power_info.power_down_setting_size);
+		if (rc < 0) {
+			CAM_ERR(CAM_SENSOR,
+				"Fail in filling vreg params for PDOWN rc %d",
+				 rc);
+			kfree(pu);
+			kfree(pd);
+			return -1;
+		}
+      	}
+	  
+       cam_sensor_update_i2c_info2(&(otp_seq->i2c_info),s_ctrl);
+	   
+        s_ctrl->i2c_data.num_data_read_otp = otp_seq->num_data_read;
+        s_ctrl->i2c_data.data_read_otp = (uint8_t *)kzalloc(s_ctrl->i2c_data.num_data_read_otp,GFP_KERNEL);
+	CAM_ERR(CAM_SENSOR,"otp read num:%d",s_ctrl->i2c_data.num_data_read_otp);
+	if (!s_ctrl->i2c_data.data_read_otp) {
+		rc = -ENOMEM;
+		CAM_ERR(CAM_SENSOR, "failed");
+		goto error;
+	}
+
+	s_ctrl->i2c_data.read_otp.is_settings_valid = 1;
+	s_ctrl->i2c_data.read_otp.request_id = 0;
+       INIT_LIST_HEAD(&(s_ctrl->i2c_data.read_otp.list_head));
+       for(i =0 ; i< otp_seq->step_num ; i++) {
+	i2c_list = cam_sensor_get_i2c_ptr(&s_ctrl->i2c_data.read_otp,
+		otp_seq->i2c_settings[i].size);
+	if (i2c_list == NULL ||
+		i2c_list->i2c_settings.reg_setting == NULL) {
+		CAM_ERR(CAM_SENSOR, "Failed in allocating i2c_list");
+	   //BSP_SYS: Alex_Ma(majianbo@smatisan.com) add kree  for leak issue  with Coverity tool on 2018-4-12,begin
+	  	 rc = -ENOMEM;
+	  	goto otp_seq_free;
+	   	//return -ENOMEM;
+	   //BSP_SYS: Alex_Ma(majianbo@smatisan.com) add kree  for leak issue  with Coverity tool on 2018-4-12,end
+	}
+       memcpy(i2c_list->i2c_settings.reg_setting, otp_seq->i2c_settings[i].reg_setting,otp_seq->i2c_settings[i].size*sizeof(struct cam_sensor_i2c_reg_array));
+       i2c_list->op_code = otp_seq->i2c_settings[i].op_code;
+       i2c_list->i2c_settings.addr_type = otp_seq->i2c_settings[i].addr_type;
+       i2c_list->i2c_settings.data_type= otp_seq->i2c_settings[i].data_type;
+       i2c_list->i2c_settings.size= otp_seq->i2c_settings[i].size;
+       i2c_list->i2c_settings.delay= otp_seq->i2c_settings[i].delay;
+       CAM_ERR(CAM_SENSOR,"cp otp read reg ok i:%d",i);
+     }
+	rc = cam_sensor_power_up(s_ctrl);
+	if (rc) {
+		CAM_ERR(CAM_SENSOR, "failed rc %d", rc);
+		goto memdata_free;
+	}
+	rc = cam_sensor_apply_settings(s_ctrl, 0,CAM_SENSOR_PACKET_OPCODE_SENSOR_READ_OTP);
+	if (rc) {
+		CAM_ERR(CAM_SENSOR,
+			"read otp  failed");
+		goto power_down;
+	}
+	// when read,later get_data will free&power down
+	if(cmd->reserved == CAM_CONFIG_DEV_OTP_READ) {
+	   kfree(otp_seq);
+	   return rc; 
+	}
+power_down:
+	if (cam_sensor_power_down(s_ctrl)) { 
+		CAM_ERR(CAM_SENSOR, "failed");
+	}
+memdata_free:
+	kfree(s_ctrl->i2c_data.data_read_otp);
+	delete_request(&s_ctrl->i2c_data.read_otp);
+error:
+	s_ctrl->i2c_data.num_data_read_otp = 0;
+otp_seq_free:
+	kfree(otp_seq);
+	return rc;
+}
+
+static void cam_sensor_hwstate_set(struct cam_sensor_ctrl_t *s_ctrl, int8_t flag)
+{
+	switch (s_ctrl->sensordata->slave_info.sensor_id) {
+		case 0x333: {
+			smartisan_hwstate_set("camera_main", (flag == 1)?"ok":"fail");
+			break;
+		}
+		case 0x363: {
+			smartisan_hwstate_set("camera_main", (flag == 1)?"ok":"fail");
+			break;
+		}
+		case 0x350: {
+			smartisan_hwstate_set("camera_aux", (flag == 1)?"ok":"fail");
+			break;
+		}
+		case 0x2187: {
+			smartisan_hwstate_set("camera_front", (flag == 1)?"ok":"fail");
+			break;
+		}
+		default: {
+			CAM_ERR(CAM_SENSOR, "[INFO]xiaopeng@hwstate: [default] Invalid sensor_id: sensor_id=0x%x flag=%d is_probe_succeed: %d",
+				s_ctrl->sensordata->slave_info.sensor_id, flag, s_ctrl->is_probe_succeed);
+			break;
+		}
+	}
 }
 
 int32_t cam_sensor_driver_cmd(struct cam_sensor_ctrl_t *s_ctrl,
@@ -568,6 +807,7 @@ int32_t cam_sensor_driver_cmd(struct cam_sensor_ctrl_t *s_ctrl,
 		if (s_ctrl->is_probe_succeed == 1) {
 			CAM_ERR(CAM_SENSOR,
 				"Already Sensor Probed in the slot");
+			cam_sensor_hwstate_set(s_ctrl, 1);
 			break;
 		}
 		/* Allocate memory for power up setting */
@@ -575,6 +815,7 @@ int32_t cam_sensor_driver_cmd(struct cam_sensor_ctrl_t *s_ctrl,
 			MAX_POWER_CONFIG, GFP_KERNEL);
 		if (!pu) {
 			rc = -ENOMEM;
+			cam_sensor_hwstate_set(s_ctrl, 0);
 			goto release_mutex;
 		}
 
@@ -583,6 +824,7 @@ int32_t cam_sensor_driver_cmd(struct cam_sensor_ctrl_t *s_ctrl,
 		if (!pd) {
 			kfree(pu);
 			rc = -ENOMEM;
+			cam_sensor_hwstate_set(s_ctrl, 0);
 			goto release_mutex;
 		}
 
@@ -596,6 +838,7 @@ int32_t cam_sensor_driver_cmd(struct cam_sensor_ctrl_t *s_ctrl,
 				CAM_ERR(CAM_SENSOR, "Get Buffer Handle Failed");
 				kfree(pu);
 				kfree(pd);
+				cam_sensor_hwstate_set(s_ctrl, 0);
 				goto release_mutex;
 			}
 		} else {
@@ -614,6 +857,7 @@ int32_t cam_sensor_driver_cmd(struct cam_sensor_ctrl_t *s_ctrl,
 				 rc);
 			kfree(pu);
 			kfree(pd);
+			cam_sensor_hwstate_set(s_ctrl, 0);
 			goto release_mutex;
 		}
 
@@ -628,6 +872,7 @@ int32_t cam_sensor_driver_cmd(struct cam_sensor_ctrl_t *s_ctrl,
 				 rc);
 			kfree(pu);
 			kfree(pd);
+			cam_sensor_hwstate_set(s_ctrl, 0);
 			goto release_mutex;
 		}
 
@@ -637,6 +882,7 @@ int32_t cam_sensor_driver_cmd(struct cam_sensor_ctrl_t *s_ctrl,
 			CAM_ERR(CAM_SENSOR, "power up failed");
 			kfree(pu);
 			kfree(pd);
+			cam_sensor_hwstate_set(s_ctrl, 0);
 			goto release_mutex;
 		}
 
@@ -647,6 +893,7 @@ int32_t cam_sensor_driver_cmd(struct cam_sensor_ctrl_t *s_ctrl,
 			msleep(20);
 			kfree(pu);
 			kfree(pd);
+			cam_sensor_hwstate_set(s_ctrl, 0);
 			goto release_mutex;
 		}
 
@@ -661,6 +908,7 @@ int32_t cam_sensor_driver_cmd(struct cam_sensor_ctrl_t *s_ctrl,
 			CAM_ERR(CAM_SENSOR, "fail in Sensor Power Down");
 			kfree(pu);
 			kfree(pd);
+			cam_sensor_hwstate_set(s_ctrl, 0);
 			goto release_mutex;
 		}
 		/*
@@ -669,6 +917,7 @@ int32_t cam_sensor_driver_cmd(struct cam_sensor_ctrl_t *s_ctrl,
 		 */
 		s_ctrl->is_probe_succeed = 1;
 		s_ctrl->sensor_state = CAM_SENSOR_INIT;
+		cam_sensor_hwstate_set(s_ctrl, 1);
 	}
 		break;
 	case CAM_ACQUIRE_DEV: {
@@ -823,50 +1072,72 @@ int32_t cam_sensor_driver_cmd(struct cam_sensor_ctrl_t *s_ctrl,
 			s_ctrl->sensordata->slave_info.sensor_id);
 	}
 		break;
-	case CAM_CONFIG_DEV: {
-		rc = cam_sensor_i2c_pkt_parse(s_ctrl, arg);
-		if (rc < 0) {
-			CAM_ERR(CAM_SENSOR, "Failed CCI Config: %d", rc);
-			goto release_mutex;
-		}
-		if (s_ctrl->i2c_data.init_settings.is_settings_valid &&
-			(s_ctrl->i2c_data.init_settings.request_id == 0)) {
+	case CAM_CONFIG_DEV: 
+		if(cmd->reserved == CAM_CONFIG_DEV_OTP_READ){
+			CAM_ERR(CAM_SENSOR, "CAM_CONFIG_DEV_OTP_READ  reserved = 0x%x",cmd->reserved);
+			rc = cam_otp_dev_config(s_ctrl,cmd);
+		        if(rc){
+			    CAM_ERR(CAM_SENSOR, "Failed in otp read");
+			    goto release_mutex;
+			}
+		} else if (cmd->reserved == CAM_CONFIG_DEV_OTP_GET_DATA){
+		        CAM_ERR(CAM_SENSOR, "CAM_CONFIG_DEV_OTP_GET_DATA  reserved = 0x%x",cmd->reserved);
+		        rc = cam_otp_dev_read(s_ctrl,cmd);
+			if(rc) {
+                                CAM_ERR(CAM_SENSOR, "Failed");
+			}
+			if(cam_sensor_power_down(s_ctrl)) {
+                                CAM_ERR(CAM_SENSOR, "Failed");
+			}
+	                kfree(s_ctrl->i2c_data.data_read_otp);
+	                if(delete_request(&s_ctrl->i2c_data.read_otp)){
+                                CAM_ERR(CAM_SENSOR, "Failed");
+			}
+	                s_ctrl->i2c_data.num_data_read_otp = 0;
+			CAM_ERR(CAM_EEPROM, "eeprom get data finish");
+		}else{
+			rc = cam_sensor_i2c_pkt_parse(s_ctrl, arg);
+			if (rc < 0) {
+				CAM_ERR(CAM_SENSOR, "Failed CCI Config: %d", rc);
+				goto release_mutex;
+			}
+			if (s_ctrl->i2c_data.init_settings.is_settings_valid &&
+				(s_ctrl->i2c_data.init_settings.request_id == 0)) {
+				rc = cam_sensor_apply_settings(s_ctrl, 0,
+					CAM_SENSOR_PACKET_OPCODE_SENSOR_INITIAL_CONFIG);
+				if (rc < 0) {
+					CAM_ERR(CAM_SENSOR,
+						"cannot apply init settings");
+					goto release_mutex;
+				}
+				rc = delete_request(&s_ctrl->i2c_data.init_settings);
+				if (rc < 0) {
+					CAM_ERR(CAM_SENSOR,
+						"Fail in deleting the Init settings");
+					goto release_mutex;
+				}
+				s_ctrl->i2c_data.init_settings.request_id = -1;
+			}
 
-			rc = cam_sensor_apply_settings(s_ctrl, 0,
-				CAM_SENSOR_PACKET_OPCODE_SENSOR_INITIAL_CONFIG);
-			if (rc < 0) {
-				CAM_ERR(CAM_SENSOR,
-					"cannot apply init settings");
-				goto release_mutex;
+			if (s_ctrl->i2c_data.config_settings.is_settings_valid &&
+				(s_ctrl->i2c_data.config_settings.request_id == 0)) {
+				rc = cam_sensor_apply_settings(s_ctrl, 0,
+					CAM_SENSOR_PACKET_OPCODE_SENSOR_CONFIG);
+				if (rc < 0) {
+					CAM_ERR(CAM_SENSOR,
+						"cannot apply res settings");
+					goto release_mutex;
+				}
+				rc = delete_request(&s_ctrl->i2c_data.config_settings);
+				if (rc < 0) {
+					CAM_ERR(CAM_SENSOR,
+						"Fail in deleting the res settings");
+					goto release_mutex;
+				}
+				s_ctrl->sensor_state = CAM_SENSOR_CONFIG;
+				s_ctrl->i2c_data.config_settings.request_id = -1;
 			}
-			rc = delete_request(&s_ctrl->i2c_data.init_settings);
-			if (rc < 0) {
-				CAM_ERR(CAM_SENSOR,
-					"Fail in deleting the Init settings");
-				goto release_mutex;
-			}
-			s_ctrl->i2c_data.init_settings.request_id = -1;
-		}
-
-		if (s_ctrl->i2c_data.config_settings.is_settings_valid &&
-			(s_ctrl->i2c_data.config_settings.request_id == 0)) {
-			rc = cam_sensor_apply_settings(s_ctrl, 0,
-				CAM_SENSOR_PACKET_OPCODE_SENSOR_CONFIG);
-			if (rc < 0) {
-				CAM_ERR(CAM_SENSOR,
-					"cannot apply config settings");
-				goto release_mutex;
-			}
-			rc = delete_request(&s_ctrl->i2c_data.config_settings);
-			if (rc < 0) {
-				CAM_ERR(CAM_SENSOR,
-					"Fail in deleting the config settings");
-				goto release_mutex;
-			}
-			s_ctrl->sensor_state = CAM_SENSOR_CONFIG;
-			s_ctrl->i2c_data.config_settings.request_id = -1;
-		}
-	}
+		   }
 		break;
 	default:
 		CAM_ERR(CAM_SENSOR, "Invalid Opcode: %d", cmd->op_code);
@@ -1020,6 +1291,10 @@ int cam_sensor_apply_settings(struct cam_sensor_ctrl_t *s_ctrl,
 			i2c_set = &s_ctrl->i2c_data.streamoff_settings;
 			break;
 		}
+		case CAM_SENSOR_PACKET_OPCODE_SENSOR_READ_OTP: {
+			i2c_set = &s_ctrl->i2c_data.read_otp;
+			break;
+		}
 		case CAM_SENSOR_PACKET_OPCODE_SENSOR_UPDATE:
 		case CAM_SENSOR_PACKET_OPCODE_SENSOR_PROBE:
 		default:
@@ -1029,7 +1304,7 @@ int cam_sensor_apply_settings(struct cam_sensor_ctrl_t *s_ctrl,
 			list_for_each_entry(i2c_list,
 				&(i2c_set->list_head), list) {
 				rc = cam_sensor_i2c_modes_util(
-					&(s_ctrl->io_master_info),
+				        s_ctrl,
 					i2c_list);
 				if (rc < 0) {
 					CAM_ERR(CAM_SENSOR,
@@ -1047,7 +1322,7 @@ int cam_sensor_apply_settings(struct cam_sensor_ctrl_t *s_ctrl,
 			list_for_each_entry(i2c_list,
 				&(i2c_set->list_head), list) {
 				rc = cam_sensor_i2c_modes_util(
-					&(s_ctrl->io_master_info),
+					s_ctrl,
 					i2c_list);
 				if (rc < 0) {
 					CAM_ERR(CAM_SENSOR,
@@ -1149,3 +1424,4 @@ int32_t cam_sensor_flush_request(struct cam_req_mgr_flush_request *flush_req)
 			flush_req->req_id);
 	return rc;
 }
+

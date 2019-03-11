@@ -18,6 +18,9 @@
 #include "cam_eeprom_soc.h"
 #include "cam_debug_util.h"
 
+ #include <linux/fs.h>
+ #include <linux/uaccess.h>
+ #include <linux/init.h>
 /**
  * cam_eeprom_read_memory() - read map data into buffer
  * @e_ctrl:     eeprom control struct
@@ -36,7 +39,7 @@ static int cam_eeprom_read_memory(struct cam_eeprom_ctrl_t *e_ctrl,
 	struct cam_eeprom_memory_map_t    *emap = block->map;
 	struct cam_eeprom_soc_private     *eb_info;
 	uint8_t                           *memptr = block->mapdata;
-
+        CAM_ERR(CAM_EEPROM, "E");
 	if (!e_ctrl) {
 		CAM_ERR(CAM_EEPROM, "e_ctrl is NULL");
 		return -EINVAL;
@@ -62,6 +65,7 @@ static int cam_eeprom_read_memory(struct cam_eeprom_ctrl_t *e_ctrl,
 			i2c_reg_settings.addr_type = emap[j].page.addr_type;
 			i2c_reg_settings.data_type = emap[j].page.data_type;
 			i2c_reg_settings.size = 1;
+			i2c_reg_settings.delay =  emap[j].page.delay;
 			i2c_reg_array.reg_addr = emap[j].page.addr;
 			i2c_reg_array.reg_data = emap[j].page.data;
 			i2c_reg_array.delay = emap[j].page.delay;
@@ -374,6 +378,32 @@ static int32_t cam_eeprom_get_dev_handle(struct cam_eeprom_ctrl_t *e_ctrl,
  *
  * Returns success or failure
  */
+static int32_t cam_eeprom_update_slaveInfo2(struct cam_eeprom_ctrl_t *e_ctrl,
+	struct cam_eeprom_i2c_info_t * i2c_info)
+{
+	int32_t  rc = 0;
+	struct cam_eeprom_soc_private  *soc_private;
+
+	soc_private =
+		(struct cam_eeprom_soc_private *)e_ctrl->soc_info.soc_private;
+	soc_private->i2c_info.slave_addr = i2c_info->slave_addr;
+	soc_private->i2c_info.i2c_freq_mode = i2c_info->i2c_freq_mode;
+
+	rc = cam_eeprom_update_i2c_info(e_ctrl,
+		&soc_private->i2c_info);
+	CAM_ERR(CAM_EEPROM, "Slave addr: 0x%x Freq Mode: %d",
+		soc_private->i2c_info.slave_addr,
+		soc_private->i2c_info.i2c_freq_mode);
+	return rc;
+}
+
+/**
+ * cam_eeprom_update_slaveInfo - Update slave info
+ * @e_ctrl:     ctrl structure
+ * @cmd_buf:    command buffer
+ *
+ * Returns success or failure
+ */
 static int32_t cam_eeprom_update_slaveInfo(struct cam_eeprom_ctrl_t *e_ctrl,
 	void *cmd_buf)
 {
@@ -459,6 +489,7 @@ static int32_t cam_eeprom_parse_memory_map(
 		map[*num_map].mem.data_type = i2c_cont_rd->header.data_type;
 		map[*num_map].mem.valid_size =
 			i2c_cont_rd->header.count;
+		CAM_ERR(CAM_EEPROM,"mem.valid_size %d", map[*num_map].mem.valid_size);
 		cmd_buf += cmd_length_in_bytes / sizeof(int32_t);
 		processed_size +=
 			cmd_length_in_bytes;
@@ -677,7 +708,6 @@ static int32_t cam_eeprom_get_cal_data(struct cam_eeprom_ctrl_t *e_ctrl,
 				e_ctrl->cal_data.num_data);
 			memcpy(read_buffer, e_ctrl->cal_data.mapdata,
 					e_ctrl->cal_data.num_data);
-
 		} else {
 			CAM_ERR(CAM_EEPROM, "Invalid direction");
 			rc = -EINVAL;
@@ -839,6 +869,110 @@ void cam_eeprom_shutdown(struct cam_eeprom_ctrl_t *e_ctrl)
 	e_ctrl->cam_eeprom_state = CAM_EEPROM_INIT;
 }
 
+int32_t cam_eeprom_dev_read(struct cam_eeprom_ctrl_t *e_ctrl,struct cam_control   *cmd)
+{
+	
+	/* check range */
+	if (cmd->size  > e_ctrl-> cal_data.num_data  || !e_ctrl-> cal_data.map) {
+		CAM_ERR(CAM_EEPROM,"%s: Invalid size. exp %u, req %u\n", __func__,
+			e_ctrl->cal_data.num_data,
+			cmd->size);
+		return -1;
+	}
+	CAM_ERR(CAM_EEPROM, "ready to copy to user");
+	if (copy_to_user((void __user *)cmd->handle,e_ctrl->cal_data.mapdata,e_ctrl->cal_data.num_data)) {
+		CAM_ERR(CAM_EEPROM, "Failed Copy to User");
+		return -1;
+	}
+	return 0;
+}
+
+int32_t cam_eeprom_dev_config(struct cam_eeprom_ctrl_t *e_ctrl,struct cam_control   *cmd)
+{
+        int rc = 0;
+	struct cam_eeprom_soc_private  *soc_private;
+	struct cam_sensor_power_ctrl_t *power_info;
+	struct cam_eeprom_info_t  *cam_eeprom_info;
+	soc_private = (struct cam_eeprom_soc_private *)e_ctrl->soc_info.soc_private;
+	power_info= &soc_private->power_info;
+	cam_eeprom_info = kzalloc(sizeof(struct cam_eeprom_info_t ),GFP_KERNEL);
+	if (!cam_eeprom_info) {
+		rc = -ENOMEM;
+		CAM_ERR(CAM_EEPROM, "failed");
+		goto eeprom_info_free;
+	}
+         if (copy_from_user(cam_eeprom_info, (void __user *) cmd->handle,
+	          sizeof(struct cam_eeprom_info_t))) {
+	    CAM_ERR(CAM_EEPROM, "Failed cp eeprom_info");
+	  //BSP_SYS: Alex_Ma(majianbo@smatisan.com) add kree  for leak issue  with Coverity tool on 2018-4-12,begin
+		 rc = -1;
+		goto eeprom_info_free;
+	 // return -1;;
+	  //BSP_SYS: Alex_Ma(majianbo@smatisan.com) add kree  for leak issue  with Coverity tool on 2018-4-12,end
+         }
+		 
+       CAM_ERR(CAM_EEPROM, "cam_eeprom_info->num_data:%d,cam_eeprom_info->num_map:%d" ,
+	   	cam_eeprom_info->num_data,cam_eeprom_info->num_map);
+	
+       cam_eeprom_update_slaveInfo2(e_ctrl,&(cam_eeprom_info->i2c_info));
+	   
+       e_ctrl->cal_data.num_data = cam_eeprom_info->num_data;
+       e_ctrl->cal_data.num_map = cam_eeprom_info->num_map; 
+
+        e_ctrl->cal_data.map = kcalloc((MSM_EEPROM_MEMORY_MAP_MAX_SIZE *
+		MSM_EEPROM_MAX_MEM_MAP_CNT),
+		(sizeof(struct cam_eeprom_memory_map_t)), GFP_KERNEL);
+	
+	if (!e_ctrl->cal_data.map) {
+		rc = -ENOMEM;
+		CAM_ERR(CAM_EEPROM, "failed");
+		rc = -1;
+	}	   
+       memcpy(e_ctrl->cal_data.map, cam_eeprom_info->map,cam_eeprom_info->num_map*sizeof(struct cam_eeprom_memory_map_t));
+       CAM_ERR(CAM_EEPROM,"cp cal_data.map ok");
+	   
+       e_ctrl->cal_data.mapdata = kzalloc(e_ctrl->cal_data.num_data, GFP_KERNEL);
+	
+	if (!e_ctrl->cal_data.mapdata) {
+		rc = -ENOMEM;
+		CAM_ERR(CAM_EEPROM, "failed");
+		goto error;
+	}
+
+	rc = cam_eeprom_power_up(e_ctrl,
+		&soc_private->power_info);
+	if (rc) {
+		CAM_ERR(CAM_EEPROM, "failed rc %d", rc);
+		goto memdata_free;
+	}
+
+	rc = cam_eeprom_read_memory(e_ctrl, &e_ctrl->cal_data);
+	if (rc) {
+		CAM_ERR(CAM_EEPROM,
+			"read_eeprom_memory failed");
+		goto power_down;
+	}
+	// when read,later get_data will free&power down
+	if(cmd->reserved == CAM_CONFIG_DEV_EEPROM_READ){
+	   kfree(cam_eeprom_info);
+	   return rc; 
+	}
+power_down:
+	if (cam_eeprom_power_down(e_ctrl)) { 
+		CAM_ERR(CAM_EEPROM, "failed");
+	}
+memdata_free:
+	kfree(e_ctrl->cal_data.mapdata);
+error:
+	kfree(e_ctrl->cal_data.map);
+	e_ctrl->cal_data.num_data = 0;
+	e_ctrl->cal_data.num_map = 0;
+eeprom_info_free:
+	kfree(cam_eeprom_info);
+	return rc;
+}
+
+
 /**
  * cam_eeprom_driver_cmd - Handle eeprom cmds
  * @e_ctrl:     ctrl structure
@@ -851,12 +985,11 @@ int32_t cam_eeprom_driver_cmd(struct cam_eeprom_ctrl_t *e_ctrl, void *arg)
 	int                            rc = 0;
 	struct cam_eeprom_query_cap_t  eeprom_cap = {0};
 	struct cam_control            *cmd = (struct cam_control *)arg;
-
 	if (!e_ctrl) {
 		CAM_ERR(CAM_EEPROM, "e_ctrl is NULL");
 		return -EINVAL;
 	}
-
+       
 	mutex_lock(&(e_ctrl->eeprom_mutex));
 	switch (cmd->op_code) {
 	case CAM_QUERY_CAP:
@@ -910,10 +1043,34 @@ int32_t cam_eeprom_driver_cmd(struct cam_eeprom_ctrl_t *e_ctrl, void *arg)
 		e_ctrl->cam_eeprom_state = CAM_EEPROM_INIT;
 		break;
 	case CAM_CONFIG_DEV:
-		rc = cam_eeprom_pkt_parse(e_ctrl, arg);
-		if (rc) {
-			CAM_ERR(CAM_EEPROM, "Failed in eeprom pkt Parsing");
-			goto release_mutex;
+		if(cmd->reserved == CAM_CONFIG_DEV_EEPROM_READ
+			||cmd->reserved == CAM_CONFIG_DEV_EEPROM_WRITE){
+			CAM_ERR(CAM_EEPROM, "CAM_CONFIG_DEV  reserved = 0x%x",cmd->reserved);
+			rc = cam_eeprom_dev_config(e_ctrl,cmd);
+		        if (rc) {
+			    CAM_ERR(CAM_EEPROM, "Failed cam_eeprom_dev_config");
+			    goto release_mutex;
+			}
+		} else if (cmd->reserved == CAM_CONFIG_DEV_EEPROM_GET_DATA){
+		        CAM_ERR(CAM_EEPROM, "CAM_CONFIG_DEV  reserved = 0x%x",cmd->reserved);
+		        rc = cam_eeprom_dev_read(e_ctrl,cmd);
+			if(rc){
+                                CAM_ERR(CAM_EEPROM, "Failed");
+			}
+			if(cam_eeprom_power_down(e_ctrl)){
+                                CAM_ERR(CAM_EEPROM, "Failed");
+			}
+			kfree(e_ctrl->cal_data.mapdata);
+			kfree(e_ctrl->cal_data.map);
+			e_ctrl->cal_data.num_data = 0;
+			e_ctrl->cal_data.num_map = 0;
+			CAM_ERR(CAM_EEPROM, "eeprom get data finish");
+		}else{
+			rc = cam_eeprom_pkt_parse(e_ctrl, arg);
+			if (rc) {
+				CAM_ERR(CAM_EEPROM, "Failed in eeprom pkt Parsing");
+				goto release_mutex;
+			}
 		}
 		break;
 	default:
@@ -923,7 +1080,6 @@ int32_t cam_eeprom_driver_cmd(struct cam_eeprom_ctrl_t *e_ctrl, void *arg)
 
 release_mutex:
 	mutex_unlock(&(e_ctrl->eeprom_mutex));
-
 	return rc;
 }
 
