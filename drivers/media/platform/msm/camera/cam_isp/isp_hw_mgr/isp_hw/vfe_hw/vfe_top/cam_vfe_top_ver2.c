@@ -601,13 +601,8 @@ int cam_vfe_top_stop(void *device_priv,
 		}
 
 		if (hw_info->hw_state == CAM_HW_STATE_POWER_UP) {
-			rc = cam_vfe_top_set_hw_clk_rate(top_priv);
-			if (rc) {
-				CAM_ERR(CAM_ISP,
-					"set_hw_clk_rate failed, rc=%d", rc);
-				return rc;
-			}
-
+	
+    		top_priv->hw_clk_rate = 0;
 			rc = cam_vfe_top_set_axi_bw_vote(top_priv, true);
 			if (rc) {
 				CAM_ERR(CAM_ISP,

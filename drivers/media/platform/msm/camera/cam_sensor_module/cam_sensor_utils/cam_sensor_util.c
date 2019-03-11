@@ -1,4 +1,4 @@
-/* Copyright (c) 2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -21,7 +21,7 @@
 #define VALIDATE_VOLTAGE(min, max, config_val) ((config_val) && \
 	(config_val >= min) && (config_val <= max))
 
-static struct i2c_settings_list*
+struct i2c_settings_list*
 	cam_sensor_get_i2c_ptr(struct i2c_settings_array *i2c_reg_settings,
 		uint32_t size)
 {
@@ -147,7 +147,7 @@ int32_t cam_sensor_handle_poll(
 		sizeof(uint32_t);
 	(*byte_cnt) += sizeof(struct cam_cmd_conditional_wait);
 
-	(*offset) += 1;
+	*offset = 1;
 	*list_ptr = &(i2c_list->list);
 
 	return rc;
@@ -191,7 +191,7 @@ int32_t cam_sensor_handle_random_write(
 		i2c_list->i2c_settings.
 			reg_setting[cnt].data_mask = 0;
 	}
-	(*offset) += cnt;
+	*offset = cnt;
 	*list = &(i2c_list->list);
 
 	return rc;
@@ -246,7 +246,7 @@ static int32_t cam_sensor_handle_continuous_write(
 		i2c_list->i2c_settings.
 			reg_setting[cnt].data_mask = 0;
 	}
-	(*offset) += cnt;
+	*offset = cnt;
 	*list = &(i2c_list->list);
 
 	return rc;
@@ -1476,6 +1476,9 @@ power_up_failed:
 				power_setting->data[0] =
 						soc_info->rgltr[vreg_idx];
 
+				regulator_put(
+					soc_info->rgltr[vreg_idx]);
+				soc_info->rgltr[vreg_idx] = NULL;
 			}
 			else
 				CAM_ERR(CAM_SENSOR, "seq_val:%d > num_vreg: %d",
@@ -1575,8 +1578,12 @@ static int cam_config_mclk_reg(struct cam_sensor_power_ctrl_t *ctrl,
 					soc_info->rgltr_op_mode[j],
 					soc_info->rgltr_delay[j]);
 
-					ps->data[0] =
-						soc_info->rgltr[j];
+				ps->data[0] =
+					soc_info->rgltr[j];
+
+				regulator_put(
+					soc_info->rgltr[j]);
+				soc_info->rgltr[j] = NULL;
 			}
 		}
 	}
@@ -1597,7 +1604,12 @@ int msm_camera_power_down(struct cam_sensor_power_ctrl_t *ctrl,
 		CAM_ERR(CAM_SENSOR, "failed ctrl %pK",  ctrl);
 		return -EINVAL;
 	}
-
+    #if 0
+        if(ctrl->cam_pinctrl_status == 0) {
+                CAM_ERR(CAM_SENSOR, "already power down");
+		return 0;
+        }
+    #endif
 	gpio_num_info = ctrl->gpio_num_info;
 	num_vreg = soc_info->num_rgltr;
 
@@ -1667,6 +1679,10 @@ int msm_camera_power_down(struct cam_sensor_power_ctrl_t *ctrl,
 
 					ps->data[0] =
 						soc_info->rgltr[ps->seq_val];
+
+					regulator_put(
+						soc_info->rgltr[ps->seq_val]);
+					soc_info->rgltr[ps->seq_val] = NULL;
 				}
 				else
 					CAM_ERR(CAM_SENSOR,
