@@ -537,19 +537,34 @@ static int msm_wsa881x_init(struct snd_soc_component *component);
 static struct wcd_mbhc_config wcd_mbhc_cfg = {
 	.read_fw_bin = false,
 	.calibration = NULL,
+#ifdef CONFIG_VENDOR_SMARTISAN
+	.detect_extn_cable = false,
+#else
 	.detect_extn_cable = true,
+#endif
 	.mono_stero_detection = false,
 	.swap_gnd_mic = NULL,
 	.hs_ext_micbias = true,
 	.key_code[0] = KEY_MEDIA,
+#ifdef CONFIG_VENDOR_SMARTISAN
+	.key_code[1] = KEY_VOLUMEUP,
+	.key_code[2] = KEY_VOLUMEDOWN,
+	.key_code[3] = KEY_SAVE,
+#else
 	.key_code[1] = KEY_VOICECOMMAND,
 	.key_code[2] = KEY_VOLUMEUP,
 	.key_code[3] = KEY_VOLUMEDOWN,
+#endif
 	.key_code[4] = 0,
 	.key_code[5] = 0,
 	.key_code[6] = 0,
 	.key_code[7] = 0,
+#ifdef CONFIG_VENDOR_SMARTISAN
+	/* do not detect lineout device */
+	.linein_th = 0,
+#else
 	.linein_th = 5000,
+#endif
 	.moisture_en = true,
 	.mbhc_micbias = MIC_BIAS_2,
 	.anc_micbias = MIC_BIAS_2,
@@ -3503,6 +3518,10 @@ done:
 	return rc;
 }
 
+#ifdef CONFIG_VENDOR_SMARTISAN
+extern bool msm_usbc_swap_gnd_init(struct snd_soc_card *card);
+#endif
+
 static bool msm_usbc_swap_gnd_mic(struct snd_soc_codec *codec, bool active)
 {
 	int value = 0;
@@ -3511,7 +3530,19 @@ static bool msm_usbc_swap_gnd_mic(struct snd_soc_codec *codec, bool active)
 	struct msm_asoc_mach_data *pdata = snd_soc_card_get_drvdata(card);
 	struct pinctrl_state *en2_pinctrl_active;
 	struct pinctrl_state *en2_pinctrl_sleep;
+#ifdef CONFIG_VENDOR_SMARTISAN
+	struct pinctrl_state *en2_pinctrl_default;
+#endif
 
+#ifdef CONFIG_VENDOR_SMARTISAN
+	ret = msm_usbc_swap_gnd_init(card);
+	if (!ret)
+		return false;
+
+	en2_pinctrl_sleep = pdata->en2_pinctrl_sleep;
+	en2_pinctrl_active = pdata->en2_pinctrl_active;
+	en2_pinctrl_default = pdata->en2_pinctrl_default;
+#else
 	if (!pdata->usbc_en2_gpio_p) {
 		if (active) {
 			/* if active and usbc_en2_gpio undefined, get pin */
@@ -3557,6 +3588,7 @@ static bool msm_usbc_swap_gnd_mic(struct snd_soc_codec *codec, bool active)
 		ret = false;
 		goto err_lookup_state;
 	}
+#endif
 
 	/* if active and usbc_en2_gpio_p defined, swap using usbc_en2_gpio_p */
 	if (active) {
@@ -3577,14 +3609,29 @@ static bool msm_usbc_swap_gnd_mic(struct snd_soc_codec *codec, bool active)
 			value, !value);
 		ret = true;
 	} else {
+#ifdef CONFIG_VENDOR_SMARTISAN
+		/*
+		 * Tricky: make it faster to detect headset
+		 */
+		ret = !!gpio_get_value_cansleep(pdata->usbc_en2_gpio);
+
+		/* if not active (headphone is plugged out), set usbc_en2_gpio_p
+		 * pin to default state, so that the serial can work well
+		 */
+		pinctrl_select_state(pdata->usbc_en2_gpio_p,
+					en2_pinctrl_default);
+#else
 		/* if not active, release usbc_en2_gpio_p pin */
 		pinctrl_select_state(pdata->usbc_en2_gpio_p,
 					en2_pinctrl_sleep);
+#endif
 	}
 
+#ifndef CONFIG_VENDOR_SMARTISAN
 err_lookup_state:
 	devm_pinctrl_put(pdata->usbc_en2_gpio_p);
 	pdata->usbc_en2_gpio_p = NULL;
+#endif
 	return ret;
 }
 
@@ -3953,8 +4000,13 @@ static void *def_tavil_mbhc_cal(void)
 	if (!tavil_wcd_cal)
 		return NULL;
 
+#ifdef CONFIG_VENDOR_SMARTISAN
+#define S(X, Y) ((WCD_MBHC_CAL_PLUG_TYPE_PTR(tavil_wcd_cal)->X) = (Y))
+	S(v_hs_max, 1700);
+#else
 #define S(X, Y) ((WCD_MBHC_CAL_PLUG_TYPE_PTR(tavil_wcd_cal)->X) = (Y))
 	S(v_hs_max, 1600);
+#endif
 #undef S
 #define S(X, Y) ((WCD_MBHC_CAL_BTN_DET_PTR(tavil_wcd_cal)->X) = (Y))
 	S(num_btn, WCD_MBHC_DEF_BUTTONS);
@@ -3964,6 +4016,16 @@ static void *def_tavil_mbhc_cal(void)
 	btn_high = ((void *)&btn_cfg->_v_btn_low) +
 		(sizeof(btn_cfg->_v_btn_low[0]) * btn_cfg->num_btn);
 
+#ifdef CONFIG_VENDOR_SMARTISAN
+	btn_high[0] = 75;
+	btn_high[1] = 220;
+	btn_high[2] = 425;
+	btn_high[3] = 625;
+	btn_high[4] = 625;
+	btn_high[5] = 625;
+	btn_high[6] = 625;
+	btn_high[7] = 625;
+#else
 	btn_high[0] = 75;
 	btn_high[1] = 150;
 	btn_high[2] = 237;
@@ -3972,6 +4034,7 @@ static void *def_tavil_mbhc_cal(void)
 	btn_high[5] = 500;
 	btn_high[6] = 500;
 	btn_high[7] = 500;
+#endif
 
 	return tavil_wcd_cal;
 }
