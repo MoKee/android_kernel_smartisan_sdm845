@@ -136,6 +136,20 @@ static struct msm_pcm_route_bdai_pp_params
 	{DISPLAY_PORT_RX, 0, 0, 0},
 };
 
+#ifdef CONFIG_VENDOR_SMARTISAN
+struct msm_switch_ref {
+	atomic_t ref;
+};
+
+enum {
+	QUAT_MI2S_RX_DL_HL,
+};
+
+static struct msm_switch_ref switch_ref[2] = {
+	[QUAT_MI2S_RX_DL_HL] = {.ref = ATOMIC_INIT(0)},
+};
+#endif
+
 /*
  * The be_dai_name_table is passed to HAL so that it can specify the
  * BE ID for the BE it wants to enable based on the name. Thus there
@@ -150,6 +164,25 @@ static struct msm_pcm_route_bdai_name be_dai_name_table[MSM_BACKEND_DAI_MAX];
 
 static int msm_routing_send_device_pp_params(int port_id,  int copp_idx,
 					     int fe_id);
+
+#ifdef CONFIG_VENDOR_SMARTISAN
+static int msm_switch_ref_dec(int id)
+{
+	if (atomic_read(&switch_ref[id].ref))
+		return atomic_dec_return(&switch_ref[id].ref);
+	return 0;
+}
+
+static int msm_switch_ref_inc(int id)
+{
+	return atomic_inc_return(&switch_ref[id].ref);
+}
+
+static int msm_switch_ref_get(int id)
+{
+	return atomic_read(&switch_ref[id].ref);
+}
+#endif
 
 static int msm_routing_get_bit_width(unsigned int format)
 {
@@ -2331,6 +2364,26 @@ static int msm_routing_put_quat_mi2s_switch_mixer(
 		snd_soc_dapm_kcontrol_widget(kcontrol);
 	struct snd_soc_dapm_update *update = NULL;
 
+#ifdef CONFIG_VENDOR_SMARTISAN
+	int value = ucontrol->value.integer.value[0];
+
+	if (value) {
+		if (msm_switch_ref_inc(QUAT_MI2S_RX_DL_HL) == 1) {
+			snd_soc_dapm_mixer_update_power(widget->dapm, kcontrol, 1,
+				update);
+			quat_mi2s_switch_enable = ucontrol->value.integer.value[0];
+		}
+	} else {
+		if (msm_switch_ref_dec(QUAT_MI2S_RX_DL_HL) == 0) {
+			snd_soc_dapm_mixer_update_power(widget->dapm, kcontrol, 0,
+				update);
+			quat_mi2s_switch_enable = ucontrol->value.integer.value[0];
+		}
+	}
+
+	pr_info("%s: QUAT MI2S Switch enable %d, ref %d\n", __func__, value,
+		msm_switch_ref_get(QUAT_MI2S_RX_DL_HL));
+#else
 	pr_debug("%s: QUAT MI2S Switch enable %ld\n", __func__,
 			ucontrol->value.integer.value[0]);
 	if (ucontrol->value.integer.value[0])
@@ -2340,6 +2393,7 @@ static int msm_routing_put_quat_mi2s_switch_mixer(
 		snd_soc_dapm_mixer_update_power(widget->dapm, kcontrol, 0,
 						update);
 	quat_mi2s_switch_enable = ucontrol->value.integer.value[0];
+#endif
 	return 1;
 }
 
@@ -3777,6 +3831,11 @@ static int msm_routing_ext_ec_put(struct snd_kcontrol *kcontrol,
 	case EXT_EC_REF_QUAT_MI2S_TX:
 		ext_ec_ref_port_id = AFE_PORT_ID_QUATERNARY_MI2S_TX;
 		break;
+#ifdef CONFIG_VENDOR_SMARTISAN
+	case EXT_EC_REF_QUAT_MI2S_RX:
+		ext_ec_ref_port_id = AFE_PORT_ID_QUATERNARY_MI2S_RX;
+		break;
+#endif
 	case EXT_EC_REF_QUIN_MI2S_TX:
 		ext_ec_ref_port_id = AFE_PORT_ID_QUINARY_MI2S_TX;
 		break;
@@ -3806,7 +3865,11 @@ static int msm_routing_ext_ec_put(struct snd_kcontrol *kcontrol,
 
 static const char * const ext_ec_ref_rx[] = {"NONE", "PRI_MI2S_TX",
 					"SEC_MI2S_TX", "TERT_MI2S_TX",
+#ifdef CONFIG_VENDOR_SMARTISAN
+					"QUAT_MI2S_TX", "QUAT_MI2S_RX", "QUIN_MI2S_TX",
+#else
 					"QUAT_MI2S_TX", "QUIN_MI2S_TX",
+#endif
 					"SLIM_1_TX"};
 
 static const struct soc_enum msm_route_ext_ec_ref_rx_enum[] = {
@@ -14447,6 +14510,9 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"MultiMedia2 Mixer", "SLIM_8_TX", "SLIMBUS_8_TX"},
 	{"MultiMedia1 Mixer", "SEC_MI2S_TX", "SEC_MI2S_TX"},
 	{"MultiMedia1 Mixer", "PRI_MI2S_TX", "PRI_MI2S_TX"},
+#ifdef CONFIG_VENDOR_SMARTISAN
+	{"MultiMedia10 Mixer", "PRI_MI2S_TX", "PRI_MI2S_TX"},
+#endif
 	{"MultiMedia2 Mixer", "SEC_MI2S_TX", "SEC_MI2S_TX"},
 	{"MultiMedia6 Mixer", "SLIM_0_TX", "SLIMBUS_0_TX"},
 	{"MultiMedia6 Mixer", "TERT_MI2S_TX", "TERT_MI2S_TX"},
@@ -15227,7 +15293,11 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"SLIMBUS_3_RX", NULL, "SLIMBUS3_DL_HL"},
 	{"SLIMBUS4_DL_HL", "Switch", "SLIM4_DL_HL"},
 	{"SLIMBUS_4_RX", NULL, "SLIMBUS4_DL_HL"},
+#ifdef CONFIG_VENDOR_SMARTISAN
+	{"SLIMBUS6_DL_HL", "Switch", "SLIM6_DL_HL"},
+#else
 	{"SLIMBUS6_DL_HL", "Switch", "SLIM0_DL_HL"},
+#endif
 	{"SLIMBUS_6_RX", NULL, "SLIMBUS6_DL_HL"},
 	{"SLIM0_UL_HL", NULL, "SLIMBUS_0_TX"},
 	{"SLIM1_UL_HL", NULL, "SLIMBUS_1_TX"},
