@@ -25,6 +25,19 @@
 #define CAM_EXT_OPCODE_BASE                     0x200
 #define CAM_CONFIG_DEV_EXTERNAL                 (CAM_EXT_OPCODE_BASE + 0x1)
 
+#ifdef CONFIG_VENDOR_SMARTISAN
+/*
+When "read" return fail ,don't call "get_data"!
+that might cause double free ,because free mem after reading fail
+*/
+#define CAM_CONFIG_DEV_EEPROM_READ      0xff22
+#define CAM_CONFIG_DEV_EEPROM_GET_DATA  0xff33
+#define CAM_CONFIG_DEV_EEPROM_WRITE     0xff44
+#define CAM_CONFIG_DEV_OTP_READ         0xff55
+#define CAM_CONFIG_DEV_OTP_GET_DATA     0xff66
+#define MAX_OTP_READ_ARRAY              12
+#endif
+
 /* camera handle type */
 #define CAM_HANDLE_USER_POINTER                 1
 #define CAM_HANDLE_MEM_HANDLE                   2
