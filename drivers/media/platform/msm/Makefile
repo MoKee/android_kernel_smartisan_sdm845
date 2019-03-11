@@ -5,11 +5,15 @@
 obj-$(CONFIG_MSM_VIDC_V4L2) += vidc/
 obj-$(CONFIG_MSM_VIDC_3X_V4L2) += vidc_3x/
 obj-y += sde/
+ifdef CONFIG_VENDOR_SMARTISAN
+obj-$(CONFIG_SPECTRA_CAMERA) += camera_smartisan/
+else
 ifeq ($(CONFIG_SPECTRA2_CAMERA), y)
 obj-$(CONFIG_SPECTRA_CAMERA) += camera_v3/
 else
 obj-$(CONFIG_SPECTRA_CAMERA) += camera/
 endif
+endif # CONFIG_VENDOR_SMARTISAN
 obj-$(CONFIG_MSMB_CAMERA) += camera_v2/
 obj-y += broadcast/
 obj-$(CONFIG_DVB_MPQ) += dvb/
