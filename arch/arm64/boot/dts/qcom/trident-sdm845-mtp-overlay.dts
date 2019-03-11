@@ -20,13 +20,19 @@
 #include <dt-bindings/interrupt-controller/arm-gic.h>
 
 #include "sdm845-sde-display.dtsi"
-#include "sdm845-qrd.dtsi"
-#include "sdm845-qrd-audio-overlay.dtsi"
-#include "sdm845-qrd-tp-overlay.dtsi"
+#include "sdm845-mtp.dtsi"
+#include "trident-audio-overlay.dtsi"
+#include "trident-haptic-overlay.dtsi"
+#include "trident-camera-sensor.dtsi"
+#include "sdm845-key-overlay.dtsi"
+#include "sdm845-mtp-tp-overlay.dtsi"
+#include "trident-fingerprint.dtsi"
+#include "trident-wipower.dtsi"
+#include "trident-charger.dtsi"
+#include "trident-rf-cable-detect.dtsi"
 
 / {
-	model = "Qualcomm Technologies, Inc. SDM845 v1 QRD";
-	compatible = "qcom,sdm845-qrd", "qcom,sdm845", "qcom,qrd";
+	compatible = "qcom,sdm845-mtp", "qcom,sdm845", "qcom,mtp","trident,sdm845-mtp";
 	qcom,msm-id = <321 0x10000>;
-	qcom,board-id = <11 0>;
+	qcom,board-id = <8 0>;
 };

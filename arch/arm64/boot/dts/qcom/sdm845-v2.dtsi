@@ -50,6 +50,7 @@
 		mem_client_3_size: qcom,client_3 {
 			compatible = "qcom,memshare-peripheral";
 			qcom,peripheral-size = <0x500000>;
+			qcom,allocate-boot-time;
 			qcom,client-id = <1>;
 			label = "modem";
 		};
