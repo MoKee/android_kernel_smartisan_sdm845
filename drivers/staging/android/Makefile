@@ -5,3 +5,7 @@ obj-y					+= ion/
 obj-$(CONFIG_ASHMEM)			+= ashmem.o
 obj-$(CONFIG_ANDROID_LOW_MEMORY_KILLER)	+= lowmemorykiller.o
 obj-$(CONFIG_ANDROID_VSOC)		+= vsoc.o
+
+ifdef CONFIG_VENDOR_SMARTISAN
+obj-y += timed_output.o
+endif
