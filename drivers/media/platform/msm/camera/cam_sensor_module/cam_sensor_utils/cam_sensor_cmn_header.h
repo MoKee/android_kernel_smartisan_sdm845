@@ -158,7 +158,8 @@ enum cam_sensor_packet_opcodes {
 	CAM_SENSOR_PACKET_OPCODE_SENSOR_PROBE,
 	CAM_SENSOR_PACKET_OPCODE_SENSOR_CONFIG,
 	CAM_SENSOR_PACKET_OPCODE_SENSOR_STREAMOFF,
-	CAM_SENSOR_PACKET_OPCODE_SENSOR_NOP = 127
+	CAM_SENSOR_PACKET_OPCODE_SENSOR_NOP = 127,
+	CAM_SENSOR_PACKET_OPCODE_SENSOR_READ_OTP
 };
 
 enum cam_actuator_packet_opcodes {
@@ -218,7 +219,8 @@ enum cam_sensor_i2c_cmd_type {
 	CAM_SENSOR_I2C_WRITE_BURST,
 	CAM_SENSOR_I2C_WRITE_SEQ,
 	CAM_SENSOR_I2C_READ,
-	CAM_SENSOR_I2C_POLL
+	CAM_SENSOR_I2C_POLL,
+	CAM_SENSOR_I2C_READ_SEQ,
 };
 
 struct common_header {
@@ -282,12 +284,53 @@ struct i2c_settings_array {
 	int64_t request_id;
 };
 
+struct cam_sensor_i2c_reg_setting_otp {
+	struct cam_sensor_i2c_reg_array reg_setting[MAX_OTP_READ_ARRAY];
+	unsigned short size;
+	enum camera_sensor_i2c_type addr_type;
+	enum camera_sensor_i2c_type data_type;
+	unsigned short delay;
+	enum cam_sensor_i2c_cmd_type op_code;
+};
+
+struct cam_sensor_power_setting {
+	enum msm_camera_power_seq_type seq_type;
+	unsigned short seq_val;
+	long config_val;
+	unsigned short delay;
+	void *data[10];
+};
+
+struct cam_sensor_power_setting_array {
+	struct cam_sensor_power_setting  power_setting[MAX_POWER_CONFIG];
+	unsigned short power_setting_size;
+	struct cam_sensor_power_setting  power_down_setting[MAX_POWER_CONFIG];
+	unsigned short power_down_setting_size;
+};
+
+
+struct cam_sensor_i2c_info_t {
+	uint16_t    slave_addr;
+	uint8_t     i2c_freq_mode;
+};
+
+struct i2c_settings_list_otp_seq {
+	struct cam_sensor_power_setting_array power_setting_array;
+	struct cam_sensor_i2c_info_t  i2c_info;
+        struct cam_sensor_i2c_reg_setting_otp i2c_settings[MAX_OTP_READ_ARRAY];
+	unsigned short step_num;
+	uint32_t num_data_read;
+};
+
 struct i2c_data_settings {
 	struct i2c_settings_array init_settings;
 	struct i2c_settings_array config_settings;
 	struct i2c_settings_array streamon_settings;
 	struct i2c_settings_array streamoff_settings;
 	struct i2c_settings_array *per_frame;
+	struct i2c_settings_array read_otp;
+	uint8_t *data_read_otp;
+	uint32_t num_data_read_otp;
 };
 
 struct cam_sensor_power_ctrl_t {
@@ -331,14 +374,6 @@ enum msm_sensor_output_format_t {
 	MSM_SENSOR_BAYER,
 	MSM_SENSOR_YCBCR,
 	MSM_SENSOR_META,
-};
-
-struct cam_sensor_power_setting {
-	enum msm_camera_power_seq_type seq_type;
-	unsigned short seq_val;
-	long config_val;
-	unsigned short delay;
-	void *data[10];
 };
 
 struct cam_sensor_board_info {

@@ -119,6 +119,14 @@ struct cam_eeprom_i2c_info_t {
 	uint8_t i2c_freq_mode;
 };
 
+struct cam_eeprom_info_t {
+	struct cam_sensor_power_setting_array power_setting_array;
+        struct cam_eeprom_i2c_info_t  i2c_info;
+	uint64_t   handle;
+	struct cam_eeprom_memory_map_t  map[MSM_EEPROM_MEMORY_MAP_MAX_SIZE*MSM_EEPROM_MAX_MEM_MAP_CNT];
+	uint32_t   num_map;
+	uint32_t   num_data;
+};
 /**
  * struct cam_eeprom_soc_private - eeprom soc private data structure
  * @eeprom_name     :   eeprom name
