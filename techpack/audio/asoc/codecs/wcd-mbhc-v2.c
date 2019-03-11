@@ -32,6 +32,9 @@
 #include "wcd-mbhc-legacy.h"
 #include "wcd-mbhc-adc.h"
 #include "wcd-mbhc-v2-api.h"
+#ifdef CONFIG_VENDOR_SMARTISAN
+#include "sdm845.h"
+#endif
 
 void wcd_mbhc_jack_report(struct wcd_mbhc *mbhc,
 			  struct snd_soc_jack *jack, int status, int mask)
@@ -527,6 +530,14 @@ void wcd_mbhc_hs_elec_irq(struct wcd_mbhc *mbhc, int irq_type,
 	int irq;
 
 	WCD_MBHC_RSC_ASSERT_LOCKED(mbhc);
+
+#ifdef CONFIG_VENDOR_SMARTISAN
+	if (enable) {
+		pr_debug("%s: workaround disable electircal detection: %d\n", __func__,
+			enable);
+		enable = false;
+	}
+#endif
 
 	if (irq_type == WCD_MBHC_ELEC_HS_INS)
 		irq = mbhc->intr_ids->mbhc_hs_ins_intr;
@@ -1289,7 +1300,11 @@ static int wcd_mbhc_initialise(struct wcd_mbhc *mbhc)
 	 */
 	if (mbhc->mbhc_cfg->enable_usbc_analog) {
 		mbhc->hphl_swh = 1;
+#ifdef CONFIG_VENDOR_SMARTISAN
+		mbhc->gnd_swh = 0;
+#else
 		mbhc->gnd_swh = 1;
+#endif
 
 		if (mbhc->mbhc_cb->hph_pull_up_control)
 			mbhc->mbhc_cb->hph_pull_up_control(codec, I_OFF);
@@ -1475,16 +1490,127 @@ static int wcd_mbhc_set_keycode(struct wcd_mbhc *mbhc)
 	return result;
 }
 
+#ifdef CONFIG_VENDOR_SMARTISAN
+extern int get_hw_version_id(void);
+
+bool msm_usbc_swap_gnd_init(struct snd_soc_card *card)
+{
+	int ret = true;
+	int hw_version = -1;
+	bool is_dvt1 = false;
+	struct msm_asoc_mach_data *pdata = snd_soc_card_get_drvdata(card);
+	static int initialized = false;
+	struct pinctrl_state *en2_pinctrl_active;
+	struct pinctrl_state *en2_pinctrl_sleep;
+	struct pinctrl_state *en2_pinctrl_default;
+
+	if (initialized)
+		return true;
+
+	hw_version = get_hw_version_id();
+	if (hw_version == 0)
+		is_dvt1 = true;
+	else
+		is_dvt1 = false;
+
+	dev_info(card->dev, "Hardward Board Version: 0x%x, is_dvt1: %d\n",
+		hw_version, is_dvt1);
+
+	if (!pdata->usbc_en2_gpio_p) {
+		/* if active and usbc_en2_gpio undefined, get pin */
+		pdata->usbc_en2_gpio_p = devm_pinctrl_get(card->dev);
+		if (IS_ERR_OR_NULL(pdata->usbc_en2_gpio_p)) {
+			dev_err(card->dev,
+				"%s: Can't get EN2 gpio pinctrl:%ld\n",
+				__func__,
+				PTR_ERR(pdata->usbc_en2_gpio_p));
+			pdata->usbc_en2_gpio_p = NULL;
+			ret = false;
+			goto err1;
+		}
+	}
+
+	pdata->usbc_en2_gpio = of_get_named_gpio(card->dev->of_node,
+				    "qcom,usbc-analog-en2-gpio", 0);
+	if (!gpio_is_valid(pdata->usbc_en2_gpio)) {
+		dev_err(card->dev, "%s, property %s not in node %s",
+			__func__, "qcom,usbc-analog-en2-gpio",
+			card->dev->of_node->full_name);
+		ret = false;
+		goto err1;
+	}
+
+	en2_pinctrl_active = pinctrl_lookup_state(pdata->usbc_en2_gpio_p,
+		is_dvt1 ? "aud_active_dvt1" : "aud_active_dvt2");
+	if (IS_ERR_OR_NULL(en2_pinctrl_active)) {
+		dev_err(card->dev,
+			"%s: Cannot get aud_active pinctrl state:%ld\n",
+			__func__, PTR_ERR(en2_pinctrl_active));
+		ret = false;
+		goto err1;
+	}
+
+	en2_pinctrl_sleep = pinctrl_lookup_state(pdata->usbc_en2_gpio_p,
+		is_dvt1 ? "aud_sleep_dvt1" : "aud_sleep_dvt2");
+	if (IS_ERR_OR_NULL(en2_pinctrl_sleep)) {
+		dev_err(card->dev,
+			"%s: Cannot get aud_sleep pinctrl state:%ld\n",
+			__func__, PTR_ERR(en2_pinctrl_sleep));
+		ret = false;
+		goto err1;
+	}
+
+	en2_pinctrl_default = pinctrl_lookup_state(pdata->usbc_en2_gpio_p, "default");
+	if (IS_ERR_OR_NULL(en2_pinctrl_default)) {
+		dev_err(card->dev,
+			"%s: Cannot get default pinctrl state:%ld\n",
+			__func__, PTR_ERR(en2_pinctrl_default));
+		ret = false;
+		goto err1;
+	}
+
+	pdata->en2_pinctrl_active = en2_pinctrl_active;
+	pdata->en2_pinctrl_sleep = en2_pinctrl_sleep;
+	pdata->en2_pinctrl_default = en2_pinctrl_default;
+
+	initialized = true;
+err1:
+	return ret;
+}
+EXPORT_SYMBOL(msm_usbc_swap_gnd_init);
+#endif
+
 static int wcd_mbhc_usb_c_analog_setup_gpios(struct wcd_mbhc *mbhc,
 					     bool active)
 {
 	int rc = 0;
+#ifdef CONFIG_VENDOR_SMARTISAN
+	struct wcd_mbhc_config *mbhc_cfg = mbhc->mbhc_cfg;
+	struct usbc_ana_audio_config *config = &mbhc_cfg->usbc_analog_cfg;
+	struct snd_soc_codec *codec = mbhc->codec;
+	struct snd_soc_card *card = codec->component.card;
+	struct msm_asoc_mach_data *pdata = snd_soc_card_get_drvdata(card);
+#else
 	struct usbc_ana_audio_config *config =
 		&mbhc->mbhc_cfg->usbc_analog_cfg;
+#endif
 	union power_supply_propval pval;
+#ifdef CONFIG_VENDOR_SMARTISAN
+	static bool last_state = false;
+	struct pinctrl_state *en2_pinctrl_active = NULL;
+	struct pinctrl_state *en2_pinctrl_sleep = NULL;
+	struct pinctrl *usbc_en2_gpio_p = NULL;
+#endif
 
 	dev_dbg(mbhc->codec->dev, "%s: setting GPIOs active = %d\n",
 		__func__, active);
+
+#ifdef CONFIG_VENDOR_SMARTISAN
+	msm_usbc_swap_gnd_init(card);
+	usbc_en2_gpio_p = pdata->usbc_en2_gpio_p;
+	en2_pinctrl_active = pdata->en2_pinctrl_active;
+	en2_pinctrl_sleep = pdata->en2_pinctrl_sleep;
+#endif
 
 	memset(&pval, 0, sizeof(pval));
 
@@ -1500,6 +1626,15 @@ static int wcd_mbhc_usb_c_analog_setup_gpios(struct wcd_mbhc *mbhc,
 		if (config->usbc_en1_gpio_p)
 			rc = msm_cdc_pinctrl_select_active_state(
 				config->usbc_en1_gpio_p);
+#ifdef CONFIG_VENDOR_SMARTISAN
+		if (rc == 0 && (en2_pinctrl_active && en2_pinctrl_sleep && usbc_en2_gpio_p)) {
+			dev_info(mbhc->codec->dev, "last state is %d\n", last_state);
+			if (last_state)
+				pinctrl_select_state(usbc_en2_gpio_p, en2_pinctrl_active);
+			else
+				pinctrl_select_state(usbc_en2_gpio_p, en2_pinctrl_sleep);
+		}
+#endif
 		if (rc == 0 && config->usbc_force_gpio_p)
 			rc = msm_cdc_pinctrl_select_active_state(
 				config->usbc_force_gpio_p);
@@ -1524,8 +1659,15 @@ static int wcd_mbhc_usb_c_analog_setup_gpios(struct wcd_mbhc *mbhc,
 		}
 
 		mbhc->usbc_mode = POWER_SUPPLY_TYPEC_NONE;
+#ifdef CONFIG_VENDOR_SMARTISAN
+		if (mbhc->mbhc_cfg->swap_gnd_mic) {
+			last_state = mbhc->mbhc_cfg->swap_gnd_mic(mbhc->codec, false);
+			dev_info(mbhc->codec->dev, "this state is %d\n", last_state);
+		}
+#else
 		if (mbhc->mbhc_cfg->swap_gnd_mic)
 			mbhc->mbhc_cfg->swap_gnd_mic(mbhc->codec, false);
+#endif
 	}
 
 	return rc;

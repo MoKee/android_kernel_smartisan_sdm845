@@ -30,7 +30,11 @@
 #include "wcd-mbhc-adc.h"
 #include "wcd-mbhc-v2.h"
 
+#ifdef CONFIG_VENDOR_SMARTISAN
+#define WCD_MBHC_ADC_HS_THRESHOLD_MV    2600
+#else
 #define WCD_MBHC_ADC_HS_THRESHOLD_MV    1700
+#endif
 #define WCD_MBHC_ADC_HPH_THRESHOLD_MV   75
 #define WCD_MBHC_ADC_MICBIAS_MV         1800
 #define WCD_MBHC_FAKE_INS_RETRY         4
@@ -1062,6 +1066,11 @@ static irqreturn_t wcd_mbhc_adc_hs_ins_irq(int irq, void *data)
 		WCD_MBHC_RSC_UNLOCK(mbhc);
 		return IRQ_HANDLED;
 	}
+
+#ifdef CONFIG_VENDOR_SMARTISAN
+	/*allow sometime schedule hs detect*/
+	msleep(150);
+#endif
 
 	pr_debug("%s: Disable electrical headset insertion interrupt\n",
 		 __func__);

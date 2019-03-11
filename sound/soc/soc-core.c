@@ -46,7 +46,11 @@
 #define CREATE_TRACE_POINTS
 #include <trace/events/asoc.h>
 
+#ifdef CONFIG_VENDOR_SMARTISAN
+#define NAME_SIZE	64
+#else
 #define NAME_SIZE	32
+#endif
 
 #ifdef CONFIG_DEBUG_FS
 struct dentry *snd_soc_debugfs_root;
@@ -332,6 +336,26 @@ static void soc_init_codec_debugfs(struct snd_soc_component *component)
 			"ASoC: Failed to create codec register debugfs file\n");
 }
 
+#ifdef CONFIG_VENDOR_SMARTISAN
+static int codec_list_seq_show(struct seq_file *m, void *v)
+{
+	struct snd_soc_codec *codec;
+
+	mutex_lock(&client_mutex);
+
+	list_for_each_entry(codec, &codec_list, list)
+		seq_printf(m, "%s\n", codec->component.name);
+
+	mutex_unlock(&client_mutex);
+
+	return 0;
+}
+
+static int codec_list_seq_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, codec_list_seq_show, NULL);
+}
+#else
 static ssize_t codec_list_read_file(struct file *file, char __user *user_buf,
 				    size_t count, loff_t *ppos)
 {
@@ -364,12 +388,42 @@ static ssize_t codec_list_read_file(struct file *file, char __user *user_buf,
 
 	return ret;
 }
+#endif
 
 static const struct file_operations codec_list_fops = {
+#ifdef CONFIG_VENDOR_SMARTISAN
+	.open = codec_list_seq_open,
+	.read = seq_read,
+	.llseek = seq_lseek,
+	.release = single_release,
+#else
 	.read = codec_list_read_file,
 	.llseek = default_llseek,/* read accesses f_pos */
+#endif
 };
 
+#ifdef CONFIG_VENDOR_SMARTISAN
+static int dai_list_seq_show(struct seq_file *m, void *v)
+{
+	struct snd_soc_component *component;
+	struct snd_soc_dai *dai;
+
+	mutex_lock(&client_mutex);
+
+	list_for_each_entry(component, &component_list, list)
+		list_for_each_entry(dai, &component->dai_list, list)
+			seq_printf(m, "%s\n", dai->name);
+
+	mutex_unlock(&client_mutex);
+
+	return 0;
+}
+
+static int dai_list_seq_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, dai_list_seq_show, NULL);
+}
+#else
 static ssize_t dai_list_read_file(struct file *file, char __user *user_buf,
 				  size_t count, loff_t *ppos)
 {
@@ -404,12 +458,40 @@ static ssize_t dai_list_read_file(struct file *file, char __user *user_buf,
 
 	return ret;
 }
+#endif
 
 static const struct file_operations dai_list_fops = {
+#ifdef CONFIG_VENDOR_SMARTISAN
+	.open = dai_list_seq_open,
+	.read = seq_read,
+	.llseek = seq_lseek,
+	.release = single_release,
+#else
 	.read = dai_list_read_file,
 	.llseek = default_llseek,/* read accesses f_pos */
+#endif
 };
 
+#ifdef CONFIG_VENDOR_SMARTISAN
+static int platform_list_seq_show(struct seq_file *m, void *v)
+{
+	struct snd_soc_platform *platform;
+
+	mutex_lock(&client_mutex);
+
+	list_for_each_entry(platform, &platform_list, list)
+		seq_printf(m, "%s\n", platform->component.name);
+
+	mutex_unlock(&client_mutex);
+
+	return 0;
+}
+
+static int platform_list_seq_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, platform_list_seq_show, NULL);
+}
+#else
 static ssize_t platform_list_read_file(struct file *file,
 				       char __user *user_buf,
 				       size_t count, loff_t *ppos)
@@ -442,10 +524,18 @@ static ssize_t platform_list_read_file(struct file *file,
 
 	return ret;
 }
+#endif
 
 static const struct file_operations platform_list_fops = {
+#ifdef CONFIG_VENDOR_SMARTISAN
+	.open = platform_list_seq_open,
+	.read = seq_read,
+	.llseek = seq_lseek,
+	.release = single_release,
+#else
 	.read = platform_list_read_file,
 	.llseek = default_llseek,/* read accesses f_pos */
+#endif
 };
 
 static void soc_init_card_debugfs(struct snd_soc_card *card)
