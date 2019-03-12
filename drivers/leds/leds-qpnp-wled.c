@@ -212,7 +212,11 @@
 #define QPNP_WLED_SEC_UNLOCK           0xA5
 
 #define NUM_DDIC_CODES			256
+#ifdef CONFIG_VENDOR_SMARTISAN
+#define QPNP_WLED_MAX_STRINGS		2
+#else
 #define QPNP_WLED_MAX_STRINGS		4
+#endif
 #define QPNP_PM660_WLED_MAX_STRINGS	3
 #define WLED_MAX_LEVEL_4095		4095
 #define QPNP_WLED_RAMP_DLY_MS		20
@@ -747,8 +751,10 @@ static int qpnp_wled_module_en(struct qpnp_wled *wled,
 			return rc;
 
 		if (wled->ovp_irq > 0 && wled->ovp_irq_disabled) {
+#ifndef CONFIG_VENDOR_SMARTISAN
 			enable_irq(wled->ovp_irq);
 			wled->ovp_irq_disabled = false;
+#endif
 		}
 	} else {
 		if (wled->ovp_irq > 0 && !wled->ovp_irq_disabled) {
