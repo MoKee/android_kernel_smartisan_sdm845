@@ -56,6 +56,21 @@ enum pd_spec_rev {
 	USBPD_REV_30 = 2,
 };
 
+#ifdef CONFIG_VENDOR_SMARTISAN
+struct usbpd_attr {
+	int		cc_orientation;
+	int		pwr_role;
+	int		alt_mode;
+	int		typec_mode;
+};
+
+enum tusb544_alt_mode {
+	TUSB544_ALTERNATE_MODE_NONE,
+	TUSB544_ALTERNATE_MODE_DP,
+	TUSB544_ALTERNATE_MODE_CUSTOM,
+};
+#endif
+
 /* enable msg and signal to be received by phy */
 #define FRAME_FILTER_EN_SOP		BIT(0)
 #define FRAME_FILTER_EN_HARD_RESET	BIT(5)
