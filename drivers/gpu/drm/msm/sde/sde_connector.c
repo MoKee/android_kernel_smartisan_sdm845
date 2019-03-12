@@ -471,8 +471,16 @@ static int _sde_connector_update_power_locked(struct sde_connector *c_conn)
 	}
 	c_conn->last_panel_power_mode = mode;
 
+#ifdef CONFIG_VENDOR_SMARTISAN
+	if (mode != SDE_MODE_DPMS_ON) {
+		mutex_unlock(&c_conn->lock);
+		sde_connector_schedule_status_work(connector, false);
+		mutex_lock(&c_conn->lock);
+	}
+#else
 	if (mode != SDE_MODE_DPMS_ON)
 		sde_connector_schedule_status_work(connector, false);
+#endif
 
 	return rc;
 }
