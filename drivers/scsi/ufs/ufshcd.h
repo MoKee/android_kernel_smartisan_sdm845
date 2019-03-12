@@ -256,6 +256,9 @@ struct ufs_desc_size {
 	int interc_desc;
 	int unit_desc;
 	int conf_desc;
+#ifdef CONFIG_VENDOR_SMARTISAN
+	int health_desc;
+#endif
 };
 
 /**
@@ -1199,6 +1202,10 @@ out:
 }
 
 int ufshcd_read_device_desc(struct ufs_hba *hba, u8 *buf, u32 size);
+
+#ifdef CONFIG_VENDOR_SMARTISAN
+int ufshcd_read_device_health(struct ufs_hba *hba, u8 *buf, u32 size);
+#endif
 
 static inline bool ufshcd_is_hs_mode(struct ufs_pa_layer_attr *pwr_info)
 {
