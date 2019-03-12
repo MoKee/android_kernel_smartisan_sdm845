@@ -65,6 +65,7 @@ obj-$(CONFIG_MEMORY_STATE_TIME)	+= memory_state_time.o
 
 ifdef CONFIG_VENDOR_SMARTISAN
 obj-y				+= haptic/
+obj-y				+= tusb544.o
 endif
 
 lkdtm-$(CONFIG_LKDTM)		+= lkdtm_core.o
