@@ -42,13 +42,25 @@ static int fb_notifier_callback(struct notifier_block *self,
 {
 	struct backlight_device *bd;
 	struct fb_event *evdata = data;
+#ifdef CONFIG_VENDOR_SMARTISAN
+	int node;
+#else
 	int node = evdata->info->node;
+#endif
 	int fb_blank = 0;
 
 	/* If we aren't interested in this event, skip it immediately ... */
 	if (event != FB_EVENT_BLANK && event != FB_EVENT_CONBLANK)
 		return 0;
 
+#ifdef CONFIG_VENDOR_SMARTISAN
+	if (evdata == NULL || evdata->info == NULL) {
+		pr_err("%s: invalid param\n", __func__);
+		return -EINVAL;
+	}
+
+	node = evdata->info->node;
+#endif
 	bd = container_of(self, struct backlight_device, fb_notif);
 	mutex_lock(&bd->ops_lock);
 	if (bd->ops)
