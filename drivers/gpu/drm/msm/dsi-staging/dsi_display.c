@@ -6063,6 +6063,14 @@ error_disable_panel:
 	(void)dsi_panel_disable(display->panel);
 error:
 	mutex_unlock(&display->display_lock);
+#ifdef CONFIG_VENDOR_SMARTISAN
+	if (!display->panel) {
+		pr_err("Invalid params\n");
+		rc = -EINVAL;
+	} else {
+		display->panel->panel_power_state = 1;
+	}
+#endif
 	return rc;
 }
 
@@ -6124,6 +6132,15 @@ int dsi_display_disable(struct dsi_display *display)
 		pr_err("Invalid params\n");
 		return -EINVAL;
 	}
+
+#ifdef CONFIG_VENDOR_SMARTISAN
+	if (!display->panel) {
+		pr_err("invalid params\n");
+		return -EINVAL;
+	} else {
+		display->panel->panel_power_state = 0;
+	}
+#endif
 
 	mutex_lock(&display->display_lock);
 
