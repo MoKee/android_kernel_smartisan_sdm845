@@ -111,7 +111,11 @@
 #define SDE_KMS_OPS_PREPARE_PLANE_FB		BIT(3)
 
 /* ESD status check interval in miliseconds */
+#ifdef CONFIG_VENDOR_SMARTISAN
+#define STATUS_CHECK_INTERVAL_MS 2000
+#else
 #define STATUS_CHECK_INTERVAL_MS 5000
+#endif
 
 /**
  * enum sde_kms_smmu_state:	smmu state
