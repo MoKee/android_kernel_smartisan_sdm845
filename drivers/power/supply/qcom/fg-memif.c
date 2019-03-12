@@ -746,7 +746,11 @@ out:
 	return rc;
 }
 
+#ifdef CONFIG_VENDOR_SMARTISAN
+#define MEM_GNT_WAIT_TIME_US	20000
+#else
 #define MEM_GNT_WAIT_TIME_US	10000
+#endif
 #define MEM_GNT_RETRIES		50
 static int fg_direct_mem_request(struct fg_chip *chip, bool request)
 {
@@ -781,7 +785,11 @@ static int fg_direct_mem_request(struct fg_chip *chip, bool request)
 	 * HW takes 5 cycles (200 KHz clock) to grant access after requesting
 	 * for DMA. Wait for 40 us before polling for MEM_GNT first time.
 	 */
+#ifdef CONFIG_VENDOR_SMARTISAN
+	usleep_range(100, 110);
+#else
 	usleep_range(40, 41);
+#endif
 
 	while (i < MEM_GNT_RETRIES) {
 		rc = fg_read(chip, MEM_IF_INT_RT_STS(chip), &val, 1);

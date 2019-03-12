@@ -521,6 +521,12 @@ config NX30P6093
 	  usb_psy to disable CC detection on the event of any water/debris
 	  detected at USBIN.
 
+config P9220_CHARGER
+	tristate "IDT P9220 Charger"
+	depends on I2C
+	help
+	  Say yes here to have support charger P9220 wireless charger.
+
 source "drivers/power/supply/qcom/Kconfig"
 
 endif # POWER_SUPPLY
