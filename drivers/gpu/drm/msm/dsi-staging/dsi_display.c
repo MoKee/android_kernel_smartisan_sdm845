@@ -392,7 +392,11 @@ static bool dsi_display_validate_reg_read(struct dsi_panel *panel)
 
 	lenp = config->status_valid_params ?: config->status_cmds_rlen;
 	mode = panel->cur_mode;
+#ifdef CONFIG_VENDOR_SMARTISAN
+	count = config->status_cmd.count;
+#else
 	count = mode->priv_info->cmd_sets[DSI_CMD_SET_PANEL_STATUS].count;
+#endif
 
 	for (i = 0; i < count; i++)
 		len += lenp[i];
@@ -5344,6 +5348,14 @@ error_disable_panel:
 	(void)dsi_panel_disable(display->panel);
 error:
 	mutex_unlock(&display->display_lock);
+#ifdef CONFIG_VENDOR_SMARTISAN
+	if (!display->panel) {
+		pr_err("Invalid params\n");
+		rc = -EINVAL;
+	} else {
+		display->panel->panel_power_state = 1;
+	}
+#endif
 	return rc;
 }
 
@@ -5405,6 +5417,15 @@ int dsi_display_disable(struct dsi_display *display)
 		pr_err("Invalid params\n");
 		return -EINVAL;
 	}
+
+#ifdef CONFIG_VENDOR_SMARTISAN
+	if (!display->panel) {
+		pr_err("invalid params\n");
+		return -EINVAL;
+	} else {
+		display->panel->panel_power_state = 0;
+	}
+#endif
 
 	mutex_lock(&display->display_lock);
 
