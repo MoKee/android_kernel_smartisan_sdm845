@@ -15,6 +15,9 @@
 #include <linux/of.h>
 #include <linux/delay.h>
 #include <linux/slab.h>
+#ifdef CONFIG_VENDOR_SMARTISAN
+#include <linux/gpio.h>
+#endif
 
 #include "dsi_pwr.h"
 
@@ -167,6 +170,14 @@ static int dsi_pwr_enable_vregs(struct dsi_regulator_info *regs, bool enable)
 
 			if (vreg->post_on_sleep)
 				msleep(vreg->post_on_sleep);
+
+#ifdef CONFIG_VENDOR_SMARTISAN
+			if (!strcmp(vreg->vreg_name, "vddio")) {
+				rc = gpio_direction_output(80, 1);
+				gpio_set_value(80, 1);
+				mdelay(6);
+			}
+#endif
 		}
 	} else {
 		for (i = (regs->count - 1); i >= 0; i--) {

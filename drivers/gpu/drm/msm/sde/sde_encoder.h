@@ -238,6 +238,17 @@ void sde_encoder_prepare_commit(struct drm_encoder *drm_enc);
  */
 int sde_encoder_update_caps_for_cont_splash(struct drm_encoder *encoder);
 
+#ifdef CONFIG_VENDOR_SMARTISAN
+/**
+ * sde_encoder_esd_failure - update sde encoder state for esd timeout
+ *      This event flows from dsi, sde_connector to sde_encoder.
+ *      TODO: manage the event at sde_kms level for forward processing.
+ * @drm_enc:    Pointer to drm encoder structure
+ * @Return:     true if successful in updating the encoder structure
+ */
+int sde_encoder_esd_failure(struct drm_encoder *enc);
+#endif
+
 /**
  * sde_encoder_display_failure_notification - update sde encoder state for
  * esd timeout or other display failure notification. This event flows from
