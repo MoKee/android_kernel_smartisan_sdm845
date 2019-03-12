@@ -42,6 +42,10 @@ static bool rev3_sink_only;
 module_param(rev3_sink_only, bool, 0644);
 MODULE_PARM_DESC(rev3_sink_only, "Enable power delivery rev3.0 sink only mode");
 
+#ifdef CONFIG_VENDOR_SMARTISAN
+extern int rdv_aux_sbu_mapping(struct usbpd_attr *);
+#endif
+
 enum usbpd_state {
 	PE_UNKNOWN,
 	PE_ERROR_RECOVERY,
@@ -362,6 +366,13 @@ struct usbpd {
 	struct workqueue_struct	*wq;
 	struct work_struct	sm_work;
 	struct hrtimer		timer;
+#ifdef CONFIG_VENDOR_SMARTISAN
+	struct work_struct	resend_work;
+	struct hrtimer		resend_timer;
+	int 			last_pdo;
+	int			last_uv;
+	int			last_ua;
+#endif
 	bool			sm_queued;
 
 	struct extcon_dev	*extcon;
@@ -393,6 +404,10 @@ struct usbpd {
 	struct power_supply	*usb_psy;
 	struct notifier_block	psy_nb;
 
+#ifdef CONFIG_VENDOR_SMARTISAN
+	struct usbpd_attr attrs;
+#endif
+
 	enum power_supply_typec_mode typec_mode;
 	enum power_supply_type	psy_type;
 	enum power_supply_typec_power_role forced_pr;
@@ -407,6 +422,10 @@ struct usbpd {
 	struct completion	is_ready;
 	struct completion	tx_chunk_request;
 	u8			next_tx_chunk;
+
+#ifdef CONFIG_VENDOR_SMARTISAN
+	struct work_struct	flip_update_work;
+#endif
 
 	struct mutex		swap_lock;
 	struct dual_role_phy_instance	*dual_role;
@@ -1104,6 +1123,56 @@ static enum hrtimer_restart pd_timeout(struct hrtimer *timer)
 	return HRTIMER_NORESTART;
 }
 
+#ifdef CONFIG_VENDOR_SMARTISAN
+static enum hrtimer_restart resend_timeout(struct hrtimer *timer)
+{
+	struct usbpd *pd = container_of(timer, struct usbpd, resend_timer);
+
+	usbpd_info(&pd->dev, "timeout resend last request\n");
+	schedule_work(&pd->resend_work);
+
+	return HRTIMER_NORESTART;
+}
+
+static void resend_request(struct work_struct *w)
+{
+	struct usbpd *pd = container_of(w, struct usbpd, resend_work);
+	int ret;
+
+	usbpd_info(&pd->dev, "resend request\n");
+
+	mutex_lock(&pd->swap_lock);
+
+	ret = pd_select_pdo(pd, pd->last_pdo, pd->last_uv, pd->last_ua);
+	if (ret)
+		goto out;
+
+	reinit_completion(&pd->is_ready);
+	pd->send_request = true;
+	kick_sm(pd, 0);
+
+	/* wait for operation to complete */
+	if (!wait_for_completion_timeout(&pd->is_ready,
+			msecs_to_jiffies(1000))) {
+		usbpd_err(&pd->dev, "select_pdo: request timed out again\n");
+		ret = -ETIMEDOUT;
+		goto out;
+	}
+
+	/* determine if request was accepted/rejected */
+	if (pd->selected_pdo != pd->requested_pdo ||
+			pd->current_voltage != pd->requested_voltage) {
+		usbpd_err(&pd->dev, "select_pdo: request rejected again\n");
+		ret = -EINVAL;
+	}
+
+out:
+	pd->send_request = false;
+	mutex_unlock(&pd->swap_lock);
+
+}
+#endif
+
 /* Enters new state and executes actions on entry */
 static void usbpd_set_state(struct usbpd *pd, enum usbpd_state next_state)
 {
@@ -1576,6 +1645,15 @@ static void handle_vdm_rx(struct usbpd *pd, struct rx_msg *rx_msg)
 
 	/* if it's a supported SVID, pass the message to the handler */
 	handler = find_svid_handler(pd, svid);
+
+#ifdef CONFIG_VENDOR_SMARTISAN
+	if (cmd == 4) {
+		pd->attrs.cc_orientation = usbpd_get_plug_orientation(pd);
+		pd->attrs.pwr_role = pd->current_pr;
+		pd->attrs.alt_mode = (svid == 0xFF01) ? TUSB544_ALTERNATE_MODE_DP : TUSB544_ALTERNATE_MODE_CUSTOM;
+		schedule_work(&pd->flip_update_work);
+	}
+#endif
 
 	/* Unstructured VDM */
 	if (!VDM_IS_SVDM(vdm_hdr)) {
@@ -2147,6 +2225,9 @@ static void usbpd_sm(struct work_struct *w)
 
 	switch (pd->current_state) {
 	case PE_UNKNOWN:
+#ifdef CONFIG_VENDOR_SMARTISAN
+		hrtimer_cancel(&pd->resend_timer);
+#endif
 		val.intval = 0;
 		power_supply_set_property(pd->usb_psy,
 				POWER_SUPPLY_PROP_PD_IN_HARD_RESET, &val);
@@ -2472,6 +2553,9 @@ static void usbpd_sm(struct work_struct *w)
 		break;
 
 	case PE_SNK_TRANSITION_SINK:
+#ifdef CONFIG_VENDOR_SMARTISAN
+		pd->sm_queued = true;
+#endif
 		if (IS_CTRL(rx_msg, MSG_PS_RDY)) {
 			val.intval = pd->requested_voltage;
 			power_supply_set_property(pd->usb_psy,
@@ -2493,6 +2577,9 @@ static void usbpd_sm(struct work_struct *w)
 		break;
 
 	case PE_SNK_READY:
+#ifdef CONFIG_VENDOR_SMARTISAN
+		pd->sm_queued = true;
+#endif
 		if (IS_DATA(rx_msg, MSG_SOURCE_CAPABILITIES)) {
 			/* save the PDOs so userspace can further evaluate */
 			memset(&pd->received_pdos, 0,
@@ -2947,12 +3034,25 @@ static inline const char *src_current(enum power_supply_typec_mode typec_mode)
 	}
 }
 
+#ifdef CONFIG_VENDOR_SMARTISAN
+static void flip_update_work(struct work_struct *work)
+{
+	struct usbpd *pd = container_of(work, struct usbpd,
+						flip_update_work);
+
+	rdv_aux_sbu_mapping(&pd->attrs);
+}
+#endif
+
 static int psy_changed(struct notifier_block *nb, unsigned long evt, void *ptr)
 {
 	struct usbpd *pd = container_of(nb, struct usbpd, psy_nb);
 	union power_supply_propval val;
 	enum power_supply_typec_mode typec_mode;
 	int ret;
+#ifdef CONFIG_VENDOR_SMARTISAN
+	static int legency_typec_mode;
+#endif
 
 	if (ptr != pd->usb_psy || evt != PSY_EVENT_PROP_CHANGED)
 		return 0;
@@ -3085,6 +3185,20 @@ static int psy_changed(struct notifier_block *nb, unsigned long evt, void *ptr)
 				typec_mode);
 		break;
 	}
+
+#ifdef CONFIG_VENDOR_SMARTISAN
+	usbpd_info(&pd->dev, "legency_typec_mode= %d, typec_mode = %d, current_pr = %d\n", legency_typec_mode, typec_mode, pd->current_pr);
+	if (legency_typec_mode != typec_mode) {
+		if (legency_typec_mode == POWER_SUPPLY_TYPEC_NONE || typec_mode == POWER_SUPPLY_TYPEC_NONE) {
+			legency_typec_mode = typec_mode;
+			pd->attrs.cc_orientation = usbpd_get_plug_orientation(pd);
+			pd->attrs.pwr_role = pd->current_pr;
+			pd->attrs.alt_mode = TUSB544_ALTERNATE_MODE_NONE;
+			pd->attrs.typec_mode = typec_mode;
+			schedule_work(&pd->flip_update_work);
+		}
+	}
+#endif
 
 	/* queue state machine due to CC state change */
 	kick_sm(pd, 0);
@@ -3542,6 +3656,10 @@ static ssize_t select_pdo_store(struct device *dev,
 
 	mutex_lock(&pd->swap_lock);
 
+#ifdef CONFIG_VENDOR_SMARTISAN
+	hrtimer_cancel(&pd->resend_timer);
+#endif
+
 	/* Only allowed if we are already in explicit sink contract */
 	if (pd->current_state != PE_SNK_READY || !is_sink_tx_ok(pd)) {
 		usbpd_err(&pd->dev, "select_pdo: Cannot select new PDO yet\n");
@@ -3569,6 +3687,12 @@ static ssize_t select_pdo_store(struct device *dev,
 		goto out;
 	}
 
+#ifdef CONFIG_VENDOR_SMARTISAN
+	pd->last_pdo = pdo;
+	pd->last_uv = uv;
+	pd->last_ua = ua;
+#endif
+
 	ret = pd_select_pdo(pd, pdo, uv, ua);
 	if (ret)
 		goto out;
@@ -3594,6 +3718,9 @@ static ssize_t select_pdo_store(struct device *dev,
 
 out:
 	pd->send_request = false;
+#ifdef CONFIG_VENDOR_SMARTISAN
+	hrtimer_start(&pd->resend_timer, ms_to_ktime(11500), HRTIMER_MODE_REL); //If 11.5S no request,resend last request
+#endif
 	mutex_unlock(&pd->swap_lock);
 	return ret ? ret : size;
 }
@@ -3996,11 +4123,20 @@ struct usbpd *usbpd_create(struct device *parent)
 		ret = -ENOMEM;
 		goto del_pd;
 	}
+#ifdef CONFIG_VENDOR_SMARTISAN
+	INIT_WORK(&pd->flip_update_work, flip_update_work);
+#endif
 	INIT_WORK(&pd->sm_work, usbpd_sm);
 	hrtimer_init(&pd->timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
 	pd->timer.function = pd_timeout;
 	mutex_init(&pd->swap_lock);
 	mutex_init(&pd->svid_handler_lock);
+
+#ifdef CONFIG_VENDOR_SMARTISAN
+	INIT_WORK(&pd->resend_work, resend_request);
+	hrtimer_init(&pd->resend_timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
+	pd->resend_timer.function = resend_timeout;
+#endif
 
 	pd->usb_psy = power_supply_get_by_name("usb");
 	if (!pd->usb_psy) {
@@ -4170,6 +4306,9 @@ void usbpd_destroy(struct usbpd *pd)
 	power_supply_put(pd->usb_psy);
 	destroy_workqueue(pd->wq);
 	device_unregister(&pd->dev);
+#ifdef CONFIG_VENDOR_SMARTISAN
+	cancel_work_sync(&pd->flip_update_work);
+#endif
 }
 EXPORT_SYMBOL(usbpd_destroy);
 
