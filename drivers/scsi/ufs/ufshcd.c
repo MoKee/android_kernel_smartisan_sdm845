@@ -52,6 +52,10 @@
 #define CREATE_TRACE_POINTS
 #include <trace/events/ufs.h>
 
+#ifdef CONFIG_VENDOR_SMARTISAN
+int pro_flag = 0;
+#endif
+
 #ifdef CONFIG_DEBUG_FS
 
 static int ufshcd_tag_req_type(struct request *rq)
@@ -3822,6 +3826,11 @@ int ufshcd_map_desc_id_to_length(struct ufs_hba *hba,
 	case QUERY_DESC_IDN_INTERCONNECT:
 		*desc_len = hba->desc_size.interc_desc;
 		break;
+#ifdef CONFIG_VENDOR_SMARTISAN
+	case QUERY_DESC_IDN_HEALTH:
+		*desc_len = hba->desc_size.health_desc;
+		break;
+#endif
 	case QUERY_DESC_IDN_STRING:
 		*desc_len = QUERY_DESC_MAX_SIZE;
 		break;
@@ -3938,6 +3947,13 @@ int ufshcd_read_device_desc(struct ufs_hba *hba, u8 *buf, u32 size)
 {
 	return ufshcd_read_desc(hba, QUERY_DESC_IDN_DEVICE, 0, buf, size);
 }
+
+#ifdef CONFIG_VENDOR_SMARTISAN
+int ufshcd_read_device_health(struct ufs_hba *hba, u8 *buf, u32 size)
+{
+	return ufshcd_read_desc(hba, QUERY_DESC_IDN_HEALTH, 0, buf, size);
+}
+#endif
 
 /**
  * ufshcd_read_string_desc - read string descriptor
@@ -7823,6 +7839,15 @@ static int ufs_read_device_desc_data(struct ufs_hba *hba)
 	if (err)
 		return err;
 
+#ifdef CONFIG_VENDOR_SMARTISAN
+	if (0x7F != desc_buf[DEVICE_DESC_PARAM_HIGH_PR_LUN]) {
+		pro_flag = 1;
+	} else {
+		pro_flag = 0;
+	}
+	hba->dev_info.pro_flag = pro_flag;
+#endif
+
 	/*
 	 * getting vendor (manufacturerID) and Bank Index in big endian
 	 * format
@@ -7836,6 +7861,24 @@ static int ufs_read_device_desc_data(struct ufs_hba *hba)
 
 	return 0;
 }
+
+#ifdef CONFIG_VENDOR_SMARTISAN
+ssize_t ufs_provision_show(struct device *dev, struct device_attribute *attr,
+			char *buf)
+{
+	struct ufs_hba *hba = dev_get_drvdata(dev);
+	if (hba == NULL)
+		return 0;
+
+	return sprintf(buf, "%d\n", hba->dev_info.pro_flag);
+}
+DEVICE_ATTR_RO(ufs_provision);
+
+void ufshcd_add_sysfs_prov(struct ufs_hba *hba)
+{
+	device_create_file(hba->dev, &dev_attr_ufs_provision);
+}
+#endif
 
 static void ufshcd_init_desc_sizes(struct ufs_hba *hba)
 {
@@ -7880,6 +7923,9 @@ static void ufshcd_def_desc_sizes(struct ufs_hba *hba)
 	hba->desc_size.conf_desc = QUERY_DESC_CONFIGURATION_DEF_SIZE;
 	hba->desc_size.unit_desc = QUERY_DESC_UNIT_DEF_SIZE;
 	hba->desc_size.geom_desc = QUERY_DESC_GEOMETRY_DEF_SIZE;
+#ifdef CONFIG_VENDOR_SMARTISAN
+	hba->desc_size.health_desc = QUERY_DESC_HEALTH_DEF_SIZE;
+#endif
 }
 
 /**
@@ -10639,6 +10685,10 @@ int ufshcd_init(struct ufs_hba *hba, void __iomem *mmio_base, unsigned int irq)
 	ufsdbg_add_debugfs(hba);
 
 	ufshcd_add_sysfs_nodes(hba);
+
+#ifdef CONFIG_VENDOR_SMARTISAN
+	ufshcd_add_sysfs_prov(hba);
+#endif
 
 	return 0;
 
