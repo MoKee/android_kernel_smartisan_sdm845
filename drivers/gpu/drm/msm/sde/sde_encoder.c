@@ -4971,6 +4971,38 @@ int sde_encoder_update_caps_for_cont_splash(struct drm_encoder *encoder)
 	return ret;
 }
 
+#ifdef CONFIG_VENDOR_SMARTISAN
+int sde_encoder_esd_failure(struct drm_encoder *enc)
+{
+	struct sde_encoder_virt *sde_enc;
+	struct msm_display_info disp_info;
+
+	if (!enc) {
+		pr_err("invalid drm encoder\n");
+		return -EINVAL;
+	}
+
+	sde_enc = to_sde_encoder_virt(enc);
+
+	/**
+	 * panel may stop generating te signal (vsync) during esd failure. rsc
+	 * hardware may hung without vsync. Avoid rsc hung by generating the
+	 * vsync from watchdog timer instead of panel.
+	 */
+	sde_encoder_control_te(enc, false);
+
+	memcpy(&disp_info, &sde_enc->disp_info, sizeof(disp_info));
+	disp_info.is_te_using_watchdog_timer = true;
+	_sde_encoder_update_vsync_source(sde_enc, &disp_info, false);
+
+	sde_encoder_control_te(enc, true);
+
+	sde_encoder_wait_for_event(enc, MSM_ENC_TX_COMPLETE);
+
+	return 0;
+}
+#endif
+
 int sde_encoder_display_failure_notification(struct drm_encoder *enc)
 {
 	struct msm_drm_thread *event_thread = NULL;

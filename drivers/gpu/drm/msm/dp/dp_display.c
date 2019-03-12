@@ -491,6 +491,10 @@ static int dp_display_send_hpd_notification(struct dp_display_private *dp,
 	if (!wait_for_completion_timeout(&dp->notification_comp,
 						HZ * timeout_sec)) {
 		pr_warn("%s timeout\n", hpd ? "connect" : "disconnect");
+#ifdef CONFIG_VENDOR_SMARTISAN
+		if (!dp_display_framework_ready(dp))
+			dp_display_send_hpd_event(dp);
+#endif
 		ret = -EINVAL;
 	}
 
@@ -798,11 +802,16 @@ static int dp_display_usbpd_attention_cb(struct device *dev)
 		return -ENODEV;
 	}
 
+/* some hdmi to dp cable hpd_irq is 1, but link status read fail */
+#ifdef CONFIG_VENDOR_SMARTISAN
+	if (dp->usbpd->hpd_high) {
+#else
 	if (dp->usbpd->hpd_irq && dp->usbpd->hpd_high &&
 	    dp->power_on) {
 		dp->link->process_request(dp->link);
 		queue_work(dp->wq, &dp->attention_work);
 	} else if (dp->usbpd->hpd_high) {
+#endif
 		queue_delayed_work(dp->wq, &dp->connect_work, 0);
 	} else {
 		/* cancel any pending request */
