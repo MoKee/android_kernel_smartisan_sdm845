@@ -155,6 +155,9 @@ enum ufs_desc_def_size {
 	QUERY_DESC_INTERCONNECT_DEF_SIZE	= 0x06,
 	QUERY_DESC_GEOMETRY_DEF_SIZE		= 0x44,
 	QUERY_DESC_POWER_DEF_SIZE		= 0x62,
+#ifdef CONFIG_VENDOR_SMARTISAN
+	QUERY_DESC_HEALTH_DEF_SIZE		= 0x25,
+#endif
 };
 
 /* Unit descriptor parameters offsets in bytes*/
@@ -207,6 +210,19 @@ enum device_desc_param {
 	DEVICE_DESC_PARAM_RTT_CAP		= 0x1C,
 	DEVICE_DESC_PARAM_FRQ_RTC		= 0x1D,
 };
+
+#ifdef CONFIG_VENDOR_SMARTISAN
+/* Device health descriptor parameters offsets in bytes*/
+enum device_health_desc_param {
+	DEVICE_HEALTH_PARAM_LEN			= 0x0,
+	DEVICE_HEALTH_PARAM_TYPE		= 0x1,
+	DEVICE_HEALTH_PARAM_PRE_EOL		= 0x2,
+	DEVICE_HEALTH_PARAM_LIFETIME_ESTA	= 0x3,
+	DEVICE_HEALTH_PARAM_LIFETIME_ESTB	= 0x4,
+	DEVICE_HEALTH_PARAM_VENDOR_PROP		= 0x5,
+};
+#endif
+
 /*
  * Logical Unit Write Protect
  * 00h: LU not write protected
@@ -517,6 +533,10 @@ struct ufs_dev_info {
 
 	/* Device deviations from standard UFS device spec. */
 	unsigned int quirks;
+
+#ifdef CONFIG_VENDOR_SMARTISAN
+	unsigned int pro_flag;
+#endif
 };
 
 #endif /* End of Header */
