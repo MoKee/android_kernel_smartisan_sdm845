@@ -18,6 +18,10 @@
 #include <linux/completion.h>
 #include <linux/delay.h>
 
+#ifdef CONFIG_VENDOR_SMARTISAN
+#include "../../../../../kernel/power/power.h"
+#endif
+
 #include "dp_ctrl.h"
 
 #define DP_KHZ_TO_HZ 1000
@@ -1396,6 +1400,10 @@ static int dp_ctrl_on(struct dp_ctrl *dp_ctrl)
 	if (ctrl->link->sink_request & DP_TEST_LINK_PHY_TEST_PATTERN)
 		dp_ctrl_send_phy_test_pattern(ctrl);
 
+#ifdef CONFIG_VENDOR_SMARTISAN
+	pm_wake_lock("dp");
+#endif
+
 	pr_debug("End-\n");
 
 end:
@@ -1410,6 +1418,10 @@ static void dp_ctrl_off(struct dp_ctrl *dp_ctrl)
 		return;
 
 	ctrl = container_of(dp_ctrl, struct dp_ctrl_private, dp_ctrl);
+
+#ifdef CONFIG_VENDOR_SMARTISAN
+	pm_wake_unlock("dp");
+#endif
 
 	ctrl->catalog->mainlink_ctrl(ctrl->catalog, false);
 	ctrl->catalog->reset(ctrl->catalog);
