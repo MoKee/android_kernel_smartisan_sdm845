@@ -6712,6 +6712,14 @@ error_disable_panel:
 error:
 	mutex_unlock(&display->display_lock);
 	SDE_EVT32(SDE_EVTLOG_FUNC_EXIT);
+#ifdef CONFIG_VENDOR_SMARTISAN
+	if (!display->panel) {
+		pr_err("Invalid params\n");
+		rc = -EINVAL;
+	} else {
+		display->panel->panel_power_state = 1;
+	}
+#endif
 	return rc;
 }
 
@@ -6775,6 +6783,14 @@ int dsi_display_disable(struct dsi_display *display)
 	}
 
 	SDE_EVT32(SDE_EVTLOG_FUNC_ENTRY);
+#ifdef CONFIG_VENDOR_SMARTISAN
+	if (!display->panel) {
+		pr_err("invalid params\n");
+		return -EINVAL;
+	} else {
+		display->panel->panel_power_state = 0;
+	}
+#endif
 	mutex_lock(&display->display_lock);
 
 	rc = dsi_display_wake_up(display);
