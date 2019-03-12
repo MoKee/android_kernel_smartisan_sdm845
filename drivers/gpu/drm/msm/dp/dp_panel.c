@@ -24,6 +24,10 @@
 #define VSC_EXT_VESA_SDP_SUPPORTED BIT(4)
 #define VSC_EXT_VESA_SDP_CHAINING_SUPPORTED BIT(5)
 
+#ifdef CONFIG_VENDOR_SMARTISAN
+extern int rdv_usb3_dp_alt_mode(bool enable);
+#endif
+
 enum dp_panel_hdr_pixel_encoding {
 	RGB,
 	YCbCr444,
@@ -178,6 +182,13 @@ static int dp_panel_read_dpcd(struct dp_panel *dp_panel, bool multi_func)
 			link_info->num_lanes, 2);
 
 	pr_debug("lane_count=%d\n", link_info->num_lanes);
+
+#ifdef CONFIG_VENDOR_SMARTISAN
+	if (link_info->num_lanes == 2)
+		rdv_usb3_dp_alt_mode(true);
+	else
+		rdv_usb3_dp_alt_mode(false);
+#endif
 
 	if (drm_dp_enhanced_frame_cap(dpcd))
 		link_info->capabilities |= caps;
