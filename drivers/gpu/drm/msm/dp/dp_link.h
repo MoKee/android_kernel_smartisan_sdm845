@@ -109,6 +109,9 @@ static inline char *dp_link_get_test_name(u32 test_requested)
 struct dp_link {
 	u32 sink_request;
 	u32 test_response;
+#ifdef CONFIG_VENDOR_SMARTISAN
+	bool psm_enabled;
+#endif
 
 	struct dp_link_sink_count sink_count;
 	struct dp_link_test_video test_video;
