@@ -478,6 +478,10 @@ static int dp_display_send_hpd_notification(struct dp_display_private *dp,
 	if (!wait_for_completion_timeout(&dp->notification_comp,
 						HZ * 5)) {
 		pr_warn("%s timeout\n", hpd ? "connect" : "disconnect");
+#ifdef CONFIG_VENDOR_SMARTISAN
+		if (!dp_display_framework_ready(dp))
+			dp_display_send_hpd_event(dp);
+#endif
 		ret = -EINVAL;
 	}
 
