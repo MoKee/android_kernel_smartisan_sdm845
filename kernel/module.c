@@ -67,6 +67,22 @@
 #define CREATE_TRACE_POINTS
 #include <trace/events/module.h>
 
+static char modules_allowed[][MODULE_NAME_LEN] = {
+	"msm_11ad_proxy",
+	"pinctrl_wcd",
+	"snd_soc_sdm845",
+	"snd_soc_wcd934x",
+	"snd_soc_wcd9xxx",
+	"snd_soc_wcd_mbhc",
+	"snd_soc_wcd_spi",
+	"snd_soc_wsa881x",
+	"swr_wcd_ctrl",
+	"wcd_core",
+	"wcd_dsp_glink",
+};
+
+static unsigned int modules_allowed_count = sizeof(modules_allowed) / MODULE_NAME_LEN;
+
 #ifndef ARCH_SHF_SMALL
 #define ARCH_SHF_SMALL 0
 #endif
@@ -1277,6 +1293,12 @@ static int check_version(Elf_Shdr *sechdrs,
 {
 	unsigned int i, num_versions;
 	struct modversion_info *versions;
+
+	for (i = 0; i < modules_allowed_count; i++) {
+		if (strcmp(mod->name, modules_allowed[i]) == 0) {
+			return 1;
+		}
+	}
 
 	/* Exporting module didn't supply crcs?  OK, we're already tainted. */
 	if (!crc)
@@ -2947,6 +2969,13 @@ static int check_modinfo(struct module *mod, struct load_info *info, int flags)
 {
 	const char *modmagic = get_modinfo(info, "vermagic");
 	int err;
+	unsigned int i;
+
+	for (i = 0; i < modules_allowed_count; i++) {
+		if (strcmp(mod->name, modules_allowed[i]) == 0) {
+			goto pass;
+		}
+	}
 
 	if (flags & MODULE_INIT_IGNORE_VERMAGIC)
 		modmagic = NULL;
@@ -2962,6 +2991,7 @@ static int check_modinfo(struct module *mod, struct load_info *info, int flags)
 		return -ENOEXEC;
 	}
 
+pass:
 	if (!get_modinfo(info, "intree")) {
 		if (!test_taint(TAINT_OOT_MODULE))
 			pr_warn("%s: loading out-of-tree module taints kernel.\n",
