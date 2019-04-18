@@ -50,6 +50,9 @@
 		mem_client_3_size: qcom,client_3 {
 			compatible = "qcom,memshare-peripheral";
 			qcom,peripheral-size = <0x500000>;
+#ifdef CONFIG_VENDOR_SMARTISAN
+			qcom,allocate-boot-time;
+#endif
 			qcom,client-id = <1>;
 			qcom,allocate-on-request;
 			label = "modem";
