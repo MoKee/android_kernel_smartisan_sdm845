@@ -3,6 +3,10 @@ dtb-$(CONFIG_ARCH_QCOM)	+= msm8996-mtp.dtb
 dtb-$(CONFIG_ARCH_QCOM)	+= apq8096-db820c.dtb
 
 ifeq ($(CONFIG_BUILD_ARM64_DT_OVERLAY),y)
+ifdef CONFIG_VENDOR_SMARTISAN
+	dtbo-$(CONFIG_ARCH_SDM845) += \
+		trident-sdm845-mtp-overlay.dtbo
+else
 	dtbo-$(CONFIG_ARCH_SDM845) += \
 		sdm845-cdp-overlay.dtbo \
 		sdm845-mtp-overlay.dtbo \
@@ -48,7 +52,13 @@ ifeq ($(CONFIG_BUILD_ARM64_DT_OVERLAY),y)
 		sda845-v2.1-cdp-sdxpoorwills-overlay.dtbo \
 		sda845-v2.1-mtp-sdxpoorwills-overlay.dtbo \
 		sda845-v2-mtp-sdxpoorwills-overlay.dtbo
+endif
 
+ifdef CONFIG_VENDOR_SMARTISAN
+trident-sdm845-mtp-overlay.dtbo-base := sdm845.dtb
+trident-sdm845-mtp-overlay.dtbo-base += sdm845-v2.dtb
+trident-sdm845-mtp-overlay.dtbo-base += sdm845-v2.1.dtb
+endif
 sdm845-cdp-overlay.dtbo-base := sdm845.dtb
 sdm845-mtp-overlay.dtbo-base := sdm845.dtb
 sdm845-qrd-overlay.dtbo-base := sdm845.dtb
