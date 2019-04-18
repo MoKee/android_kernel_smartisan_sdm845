@@ -17,6 +17,9 @@
 	pcie0: qcom,pcie@0x1c00000 {
 		compatible = "qcom,pci-msm";
 		cell-index = <0>;
+#ifdef CONFIG_VENDOR_SMARTISAN
+		status = "disabled";
+#endif
 
 		reg = <0x1c00000 0x2000>,
 		      <0x1c06000 0x1000>,
@@ -272,6 +275,9 @@
 	pcie1: qcom,pcie@0x1c08000 {
 		compatible = "qcom,pci-msm";
 		cell-index = <1>;
+#ifdef CONFIG_VENDOR_SMARTISAN
+		status = "disabled";
+#endif
 
 		reg = <0x1c08000 0x2000>,
 		      <0x1c0a000 0x2000>,
