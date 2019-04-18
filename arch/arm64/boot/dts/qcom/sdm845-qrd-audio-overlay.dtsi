@@ -16,9 +16,11 @@
 &snd_934x {
 	qcom,model = "sdm845-tavil-qrd-snd-card";
 
+#ifndef CONFIG_VENDOR_SMARTISAN
 	qcom,wsa-max-devs = <1>;
 	qcom,wsa-devs = <&wsa881x_0211>, <&wsa881x_0213>;
 	qcom,wsa-aux-dev-prefix = "SpkrRight", "SpkrRight";
+#endif
 
 	qcom,msm-mbhc-usbc-audio-supported = <1>;
 
