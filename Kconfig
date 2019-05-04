@@ -14,3 +14,114 @@ config VENDOR_SMARTISAN
 	  This feature enables Smartisan specific hacks
 
 source "arch/$SRCARCH/Kconfig"
+
+config PINCTRL_WCD
+	tristate "stub"
+
+config SND_SOC_WCD9XXX_V2
+	tristate "stub"
+
+config SND_SOC_WCD_MBHC
+	tristate "stub"
+
+config SND_SOC_WSA881X
+	tristate "stub"
+
+config SND_SOC_WCD_SPI
+	tristate "stub"
+
+config SND_SOC_WCD934X
+	tristate "stub"
+
+config SOUNDWIRE_WCD_CTRL
+	tristate "stub"
+
+config WCD9XXX_CODEC_CORE
+	tristate "stub"
+
+config MSM_CDC_PINCTRL
+	tristate "stub"
+
+config SND_SOC_WCD934X_MBHC
+	tristate "stub"
+
+config SND_SOC_WCD934X_DSD
+	tristate "stub"
+
+config SND_SOC_MACHINE_SDM845
+	tristate "stub"
+
+config WCD_DSP_GLINK
+	tristate "stub"
+
+config MSM_QDSP6V2_CODECS
+	tristate "stub"
+
+config MSM_ULTRASOUND
+	tristate "stub"
+
+config MSM_QDSP6_APRV2_GLINK
+	tristate "stub"
+
+config SND_SOC_MSM_QDSP6V2_INTF
+	tristate "stub"
+
+config MSM_ADSP_LOADER
+	tristate "stub"
+
+config AUDIO_REGMAP_SWR
+	tristate "stub"
+
+config MSM_QDSP6_SSR
+	tristate "stub"
+
+config MSM_QDSP6_PDR
+	tristate "stub"
+
+config MSM_QDSP6_NOTIFIER
+	tristate "stub"
+
+config SND_SOC_MSM_HOSTLESS_PCM
+	tristate "stub"
+
+config SND_SOC_SDM845
+	tristate "stub"
+
+config MSM_GLINK_SPI_XPRT
+	tristate "stub"
+
+config SOUNDWIRE
+	tristate "stub"
+
+config SND_SOC_QDSP6V2
+	tristate "stub"
+
+config SND_SOC_WCD_MBHC_ADC
+	tristate "stub"
+
+config QTI_PP
+	tristate "stub"
+
+config SND_HWDEP
+	tristate "stub"
+
+config DTS_EAGLE
+	tristate "stub"
+
+config DOLBY_DS2
+	tristate "stub"
+
+config DOLBY_LICENSE
+	tristate "stub"
+
+config DTS_SRS_TM
+	tristate "stub"
+
+config SND_SOC_MSM_STUB
+	tristate "stub"
+
+config MSM_AVTIMER
+	tristate "stub"
+
+config SND_SOC_MSM_HDMI_CODEC_RX
+	tristate "stub"
