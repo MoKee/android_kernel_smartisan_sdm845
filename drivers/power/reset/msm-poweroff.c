@@ -319,7 +319,9 @@ static void msm_restart_prepare(const char *cmd)
 
 #ifdef CONFIG_VENDOR_SMARTISAN
 	if (in_panic) {
-		__raw_writel(0x77665501, restart_reason);
+		qpnp_pon_set_restart_reason(
+			PON_RESTART_REASON_BOOTLOADER);
+		__raw_writel(0x77665500, restart_reason);
 	} else
 #endif
 	if (cmd != NULL) {
