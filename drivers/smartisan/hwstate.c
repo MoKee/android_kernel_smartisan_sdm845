@@ -37,6 +37,9 @@ static hwstate_t hwstate[HWSTATE_MAX] =
 };
 #undef KEYWORD
 
+#define max98927_get_i2c_states() 0
+#define debussy_get_presence() 0
+
 static ssize_t hwstate_show(struct kobject *kobj, struct kobj_attribute *attr, char * buf)
 {
 	int i = 0;
