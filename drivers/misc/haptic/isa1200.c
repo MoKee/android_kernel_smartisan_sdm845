@@ -1946,8 +1946,22 @@ static struct attribute_group vibrator_attr_group = {
     .attrs  = vibrator_attributes,
 };
 
+/* Dummy functions for brightness */
+static
+enum led_brightness isa1200_brightness_get(struct led_classdev *cdev)
+{
+    return 0;
+}
+
+static void isa1200_brightness_set(struct led_classdev *cdev,
+                    enum led_brightness level)
+{
+}
+
 int isa1200_sysfs_init(stIsa1200Data_t *pIsa1200)
 {
+    int rc;
+
     pr_debug("[HPT] %s\n", __func__);
     /* /sys/class/haptic */
     pIsa1200->pclass = class_create(THIS_MODULE, "haptic");
@@ -1958,9 +1972,6 @@ int isa1200_sysfs_init(stIsa1200Data_t *pIsa1200)
     /* /sys/class/haptic/player */
     pIsa1200->pdevPlayer = device_create(pIsa1200->pclass, NULL, 0, pIsa1200, "player");
 
-    /* /sys/class/haptic/vibrator */
-    pIsa1200->pdevVibrator = device_create(pIsa1200->pclass, NULL, 0, pIsa1200, "vibrator");
-
     /* /sys/class/haptic/debug/... */
     if (sysfs_create_group(&pIsa1200->pdevDebug->kobj, &debug_attr_group))
         pr_err("Failed to create sysfs group(%s)!\n", "debug");
@@ -1969,9 +1980,21 @@ int isa1200_sysfs_init(stIsa1200Data_t *pIsa1200)
     if (sysfs_create_group(&pIsa1200->pdevPlayer->kobj, &player_attr_group))
         pr_err("Failed to create sysfs group(%s)!\n", "player");
 
-    /* /sys/class/haptic/vibrator/... */
-    if (sysfs_create_group(&pIsa1200->pdevVibrator->kobj, &vibrator_attr_group))
-        pr_err("Failed to create sysfs group(%s)!\n", "vibrator");
+    pIsa1200->cdev.name = "vibrator";
+    pIsa1200->cdev.brightness_get = isa1200_brightness_get;
+    pIsa1200->cdev.brightness_set = isa1200_brightness_set;
+    pIsa1200->cdev.max_brightness = 100;
+    rc = devm_led_classdev_register(pIsa1200, &pIsa1200->cdev);
+    if (rc < 0) {
+        pr_err("Error in registering led class device, rc=%d\n", rc);
+        return 0;
+    }
+
+    rc = sysfs_create_files(&pIsa1200->cdev.dev->kobj, &vibrator_attr_group);
+    if (rc < 0) {
+        pr_err("Error in creating sysfs file, rc=%d\n", rc);
+        return 0;
+    }
 
     //isa1200_sysfs_effect_init(pIsa1200);
 
