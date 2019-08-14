@@ -1678,7 +1678,7 @@ end_play_phe_show:
     return count;
 }
 
-/* sysfs : /sys/class/haptic/vibrator/state */
+/* sysfs : /sys/class/leds/vibrator/state */
 ssize_t isa1200_state_store(struct device *dev, struct device_attribute *attr,
         const char *buf, size_t size)
 {
@@ -1704,14 +1704,15 @@ ssize_t isa1200_state_show(struct device *dev, struct device_attribute *attr,
     return 0;
 }
 
-/* sysfs : /sys/class/haptic/vibrator/duration */
+/* sysfs : /sys/class/leds/vibrator/duration */
 ssize_t isa1200_duration_store(struct device *dev, struct device_attribute *attr,
         const char *buf, size_t size)
 {
     u32 val;
     int rc;
 
-    stIsa1200Data_t *pIsa1200 = dev_get_drvdata(dev);
+    struct led_classdev *cdev = dev_get_drvdata(dev);
+    stIsa1200Data_t *pIsa1200 = container_of(cdev, stIsa1200Data_t, cdev);
 
     rc = kstrtouint(buf, 0, &val);
     if (rc < 0)
@@ -1744,14 +1745,15 @@ ssize_t isa1200_duration_show(struct device *dev, struct device_attribute *attr,
     return 0;
 }
 
-/* sysfs : /sys/class/haptic/vibrator/activate */
+/* sysfs : /sys/class/leds/vibrator/activate */
 ssize_t isa1200_activate_store(struct device *dev, struct device_attribute *attr,
         const char *buf, size_t size)
 {
     int32_t fwd;
     int32_t enable = 0;
 
-    stIsa1200Data_t *pIsa1200 = dev_get_drvdata(dev);
+    struct led_classdev *cdev = dev_get_drvdata(dev);
+    stIsa1200Data_t *pIsa1200 = container_of(cdev, stIsa1200Data_t, cdev);
     stPheInfo_t *pinfo;
     stPhe_t *pphe;
 
@@ -1823,7 +1825,7 @@ ssize_t isa1200_activate_show(struct device *dev, struct device_attribute *attr,
     return 0;
 }
 
-/* sysfs : /sys/class/haptic/vibrator/chip */
+/* sysfs : /sys/class/leds/vibrator/chip */
 ssize_t isa1200_chip_store(struct device *dev, struct device_attribute *attr,
         const char *buf, size_t size)
 {
@@ -1916,7 +1918,7 @@ static struct attribute_group player_attr_group = {
     .attrs	= player_attributes,
 };
 
-/* sysfs : /sys/class/haptic/vibrator */
+/* sysfs : /sys/class/leds/vibrator */
 static DEVICE_ATTR(state, (S_IRUGO | S_IWUSR | S_IWGRP),
         isa1200_state_show, isa1200_state_store);
 static DEVICE_ATTR(duration, (S_IRUGO | S_IWUSR | S_IWGRP),
@@ -1926,7 +1928,7 @@ static DEVICE_ATTR(activate, (S_IRUGO | S_IWUSR | S_IWGRP),
 static DEVICE_ATTR(chip, (S_IRUGO | S_IWUSR | S_IWGRP),
         isa1200_chip_show, isa1200_chip_store);
 
-static struct attribute *vibrator_attributes[] = {
+static const struct attribute *vibrator_attributes[] = {
     &dev_attr_state.attr,
     &dev_attr_duration.attr,
     &dev_attr_activate.attr,
@@ -1934,12 +1936,22 @@ static struct attribute *vibrator_attributes[] = {
     NULL,
 };
 
-static struct attribute_group vibrator_attr_group = {
-    .attrs  = vibrator_attributes,
-};
+/* Dummy functions for brightness */
+static
+enum led_brightness isa1200_brightness_get(struct led_classdev *cdev)
+{
+    return 0;
+}
+
+static void isa1200_brightness_set(struct led_classdev *cdev,
+                    enum led_brightness level)
+{
+}
 
 int isa1200_sysfs_init(stIsa1200Data_t *pIsa1200)
 {
+    int rc;
+
     pr_debug("[HPT] %s\n", __func__);
     /* /sys/class/haptic */
     pIsa1200->pclass = class_create(THIS_MODULE, "haptic");
@@ -1950,9 +1962,6 @@ int isa1200_sysfs_init(stIsa1200Data_t *pIsa1200)
     /* /sys/class/haptic/player */
     pIsa1200->pdevPlayer = device_create(pIsa1200->pclass, NULL, 0, pIsa1200, "player");
 
-    /* /sys/class/haptic/vibrator */
-    pIsa1200->pdevVibrator = device_create(pIsa1200->pclass, NULL, 0, pIsa1200, "vibrator");
-
     /* /sys/class/haptic/debug/... */
     if (sysfs_create_group(&pIsa1200->pdevDebug->kobj, &debug_attr_group))
         pr_err("Failed to create sysfs group(%s)!\n", "debug");
@@ -1961,9 +1970,21 @@ int isa1200_sysfs_init(stIsa1200Data_t *pIsa1200)
     if (sysfs_create_group(&pIsa1200->pdevPlayer->kobj, &player_attr_group))
         pr_err("Failed to create sysfs group(%s)!\n", "player");
 
-    /* /sys/class/haptic/vibrator/... */
-    if (sysfs_create_group(&pIsa1200->pdevVibrator->kobj, &vibrator_attr_group))
-        pr_err("Failed to create sysfs group(%s)!\n", "vibrator");
+    pIsa1200->cdev.name = "vibrator";
+    pIsa1200->cdev.brightness_get = isa1200_brightness_get;
+    pIsa1200->cdev.brightness_set = isa1200_brightness_set;
+    pIsa1200->cdev.max_brightness = 100;
+    rc = devm_led_classdev_register(pIsa1200->pdev, &pIsa1200->cdev);
+    if (rc < 0) {
+        pr_err("Error in registering led class device, rc=%d\n", rc);
+        return 0;
+    }
+
+    rc = sysfs_create_files(&pIsa1200->cdev.dev->kobj, vibrator_attributes);
+    if (rc < 0) {
+        pr_err("Error in creating sysfs file, rc=%d\n", rc);
+        return 0;
+    }
 
     //isa1200_sysfs_effect_init(pIsa1200);
 
