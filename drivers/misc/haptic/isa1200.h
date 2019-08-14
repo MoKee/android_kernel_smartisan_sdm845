@@ -23,6 +23,8 @@
 ** =============================================================================
 */
 
+#include <linux/leds.h>
+
 #define HAPTICS_DEVICE_NAME "isa1200"
 
 #define ISA1200_REG_LCTRL       (0x00)
@@ -177,7 +179,8 @@ typedef struct _stIsa1200Data_t {
     struct class *pclass;
     struct device *pdevDebug;
     struct device *pdevPlayer;
-    struct device *pdevVibrator;
+
+    struct led_classdev cdev;
 
     struct hrtimer timer;
     struct hrtimer timer_stop;
