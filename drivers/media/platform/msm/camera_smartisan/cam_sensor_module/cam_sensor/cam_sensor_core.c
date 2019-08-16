@@ -589,13 +589,10 @@ int cam_sensor_match_id(struct cam_sensor_ctrl_t *s_ctrl)
 
 	CAM_DBG(CAM_SENSOR, "read id: 0x%x expected id 0x%x:",
 			 chipid, slave_info->sensor_id);
-	if (cam_sensor_id_by_mask(s_ctrl, chipid) != slave_info->sensor_id) {
+	if (cam_sensor_id_by_mask(s_ctrl, chipid & 0xfff) != (slave_info->sensor_id & 0xfff)) {
 		CAM_ERR(CAM_SENSOR, "chip id %x does not match %x",
 				chipid, slave_info->sensor_id);
-        if(!((slave_info->sensor_id == 0x333) &&  (cam_sensor_id_by_mask(s_ctrl, chipid) == 0x363)))
-        {
 		 return -ENODEV;
-        }
 	}
 	return rc;
 }
@@ -761,7 +758,7 @@ otp_seq_free:
 
 static void cam_sensor_hwstate_set(struct cam_sensor_ctrl_t *s_ctrl, int8_t flag)
 {
-	switch (s_ctrl->sensordata->slave_info.sensor_id) {
+	switch (s_ctrl->sensordata->slave_info.sensor_id & 0xfff) {
 		case 0x333: {
 			smartisan_hwstate_set("camera_main", (flag == 1)?"ok":"fail");
 			break;
