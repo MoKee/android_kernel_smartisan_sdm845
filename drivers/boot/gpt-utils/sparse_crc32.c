@@ -43,8 +43,7 @@
  */
 
 /* Code taken from FreeBSD 8 */
-#include <stdint.h>
-#include <stdio.h>
+#include <linux/types.h>
 
 static uint32_t crc32_tab[] = {
     0x00000000, 0x77073096, 0xee0e612c, 0x990951ba, 0x076dc419, 0x706af48f, 0xe963a535, 0x9e6495a3,
@@ -88,7 +87,7 @@ static uint32_t crc32_tab[] = {
  */
 
 uint32_t sparse_crc32(uint32_t crc_in, const void* buf, size_t size) {
-  const uint8_t* p = reinterpret_cast<const uint8_t*>(buf);
+  const uint8_t* p = (const uint8_t*)buf;
   uint32_t crc;
 
   crc = crc_in ^ ~0U;

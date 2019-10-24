@@ -29,14 +29,7 @@
 
 #ifndef __GPT_UTILS_H__
 #define __GPT_UTILS_H__
-#include <vector>
-#include <string>
-#include <map>
-#ifdef __cplusplus
-extern "C" {
-#endif
-#include <unistd.h>
-#include <stdlib.h>
+#include <linux/unistd.h>
 /******************************************************************************
  * GPT HEADER DEFINES
  ******************************************************************************/
@@ -84,10 +77,6 @@ extern "C" {
 #define AB_PTN_LIST PTN_SWAP_LIST, "boot", "system", "vendor", "modem", "bluetooth"
 #define BOOT_DEV_DIR    "/dev/block/bootdevice/by-name"
 
-/******************************************************************************
- * HELPER MACROS
- ******************************************************************************/
-#define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
 /******************************************************************************
  * TYPES
  ******************************************************************************/
@@ -140,7 +129,7 @@ struct gpt_disk {
  ******************************************************************************/
 int prepare_boot_update(enum boot_update_stage stage);
 //GPT disk methods
-struct gpt_disk* gpt_disk_alloc();
+struct gpt_disk* gpt_disk_alloc(void);
 //Free previously allocated gpt_disk struct
 void gpt_disk_free(struct gpt_disk *disk);
 //Get the details of the disk holding the partition whose name
@@ -159,7 +148,7 @@ int gpt_disk_update_crc(struct gpt_disk *disk);
 int gpt_disk_commit(struct gpt_disk *disk);
 
 //Return if the current device is UFS based or not
-int gpt_utils_is_ufs_device();
+#define gpt_utils_is_ufs_device() 1
 
 //Swtich betwieen using either the primary or the backup
 //boot LUN for boot. This is required since UFS boot partitions
@@ -179,15 +168,7 @@ int gpt_utils_is_ufs_device();
 //- Once we locate sgY we call the query ioctl on /dev/sgy to switch
 //the boot lun to either LUNA or LUNB
 int gpt_utils_set_xbl_boot_partition(enum boot_chain chain);
-
-//Given a vector of partition names as a input and a reference to a map,
-//populate the map to indicate which physical disk each of the partitions
-//sits on. The key in the map is the path to the block device where the
-//partiton lies and the value is a vector of strings indicating which of
-//the passed in partiton names sits on that device.
-int gpt_utils_get_partition_map(std::vector<std::string>& partition_list,
-                std::map<std::string,std::vector<std::string>>& partition_map);
-#ifdef __cplusplus
-}
-#endif
+int get_dev_path_from_partition_name(const char *partname,
+                char *buf,
+                size_t buflen);
 #endif /* __GPT_UTILS_H__ */

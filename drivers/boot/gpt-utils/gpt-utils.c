@@ -27,35 +27,27 @@
  * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#define _LARGEFILE64_SOURCE /* enable lseek64() */
-
 /******************************************************************************
  * INCLUDE SECTION
  ******************************************************************************/
-#include <stdio.h>
-#include <fcntl.h>
-#include <string.h>
-#include <errno.h>
-#include <inttypes.h>
-#include <sys/stat.h>
-#include <sys/ioctl.h>
+#include <linux/fcntl.h>
+#include <linux/string.h>
+#include <linux/errno.h>
+#include <linux/types.h>
+#include <linux/stat.h>
+#include <linux/ioctl.h>
 #include <scsi/ufs/ioctl.h>
 #include <scsi/ufs/ufs.h>
-#include <unistd.h>
+#include <linux/unistd.h>
 #include <linux/fs.h>
-#include <limits.h>
-#include <dirent.h>
+#include <linux/limits.h>
+#include <linux/dirent.h>
 #include <linux/kernel.h>
+#include <linux/slab.h>
 #include <asm/byteorder.h>
-#include <map>
-#include <vector>
-#include <string>
 #define LOG_TAG "gpt-utils"
-#include <log/log.h>
-#include <cutils/properties.h>
 #include "gpt-utils.h"
 #include "sparse_crc32.h"
-#include <endian.h>
 
 
 /******************************************************************************
@@ -111,7 +103,6 @@
 /******************************************************************************
  * TYPES
  ******************************************************************************/
-using namespace std;
 enum gpt_state {
     GPT_OK = 0,
     GPT_BAD_SIGNATURE,
@@ -142,24 +133,22 @@ struct update_data {
  *
  *  ==========================================================================
  */
-static int blk_rw(int fd, int rw, int64_t offset, uint8_t *buf, unsigned len)
+static int blk_rw(struct file *fd, int rw, int64_t offset, uint8_t *buf, unsigned len)
 {
     int r;
 
-    if (lseek64(fd, offset, SEEK_SET) < 0) {
-        fprintf(stderr, "block dev lseek64 %" PRId64 " failed: %s\n", offset,
-                strerror(errno));
+    if (fd->f_op->llseek(fd, offset, SEEK_SET) < 0) {
+        pr_err("block dev llseek failed");
         return -1;
     }
 
     if (rw)
-        r = write(fd, buf, len);
+        r = fd->f_op->write(fd, buf, len, 0);
     else
-        r = read(fd, buf, len);
+        r = fd->f_op->read(fd, buf, len, 0);
 
     if (r < 0)
-        fprintf(stderr, "block dev %s failed: %s\n", rw ? "write" : "read",
-                strerror(errno));
+        pr_err("block dev %s failed", rw ? "write" : "read");
     else
         r = 0;
 
@@ -250,7 +239,7 @@ static int gpt_boot_chain_swap(const uint8_t *pentries_start,
         ptn_bak_entry = gpt_pentry_seek(ptn_swap_list[i],
                         ptn_entry + pentry_size, pentries_end, pentry_size);
         if (ptn_bak_entry == NULL) {
-            fprintf(stderr, "'%s' partition not backup - skip safe update\n",
+            pr_err("'%s' partition not backup - skip safe update",
                     ptn_swap_list[i]);
             continue;
         }
@@ -279,7 +268,7 @@ static int gpt_boot_chain_swap(const uint8_t *pentries_start,
  *
  *  ==========================================================================
  */
-static int gpt2_set_boot_chain(int fd, enum boot_chain boot)
+static int gpt2_set_boot_chain(struct file *fd, enum boot_chain boot)
 {
     int64_t  gpt2_header_offset;
     uint64_t pentries_start_offset;
@@ -293,22 +282,20 @@ static int gpt2_set_boot_chain(int fd, enum boot_chain boot)
     uint32_t blk_size = 0;
     int r;
 
-    if (ioctl(fd, BLKSSZGET, &blk_size) != 0) {
-            fprintf(stderr, "Failed to get GPT device block size: %s\n",
-                            strerror(errno));
+    if (fd->f_op->unlocked_ioctl(fd, BLKSSZGET, (unsigned long) &blk_size) != 0) {
+            pr_err("Failed to get GPT device block size");
             r = -1;
             goto EXIT;
     }
-    gpt_header = (uint8_t*)malloc(blk_size);
+    gpt_header = (uint8_t*)kmalloc(blk_size, GFP_KERNEL);
     if (!gpt_header) {
-            fprintf(stderr, "Failed to allocate memory to hold GPT block\n");
+            pr_err("Failed to allocate memory to hold GPT block");
             r = -1;
             goto EXIT;
     }
-    gpt2_header_offset = lseek64(fd, 0, SEEK_END) - blk_size;
+    gpt2_header_offset = fd->f_op->llseek(fd, 0, SEEK_END) - blk_size;
     if (gpt2_header_offset < 0) {
-        fprintf(stderr, "Getting secondary GPT header offset failed: %s\n",
-                strerror(errno));
+        pr_err("Getting secondary GPT header offset failed");
         r = -1;
         goto EXIT;
     }
@@ -317,7 +304,7 @@ static int gpt2_set_boot_chain(int fd, enum boot_chain boot)
     r = blk_rw(fd, 0, blk_size, gpt_header, blk_size);
 
     if (r) {
-            fprintf(stderr, "Failed to read primary GPT header from blk dev\n");
+            pr_err("Failed to read primary GPT header from blk dev");
             goto EXIT;
     }
     pentries_start_offset =
@@ -326,10 +313,9 @@ static int gpt2_set_boot_chain(int fd, enum boot_chain boot)
     pentries_array_size =
         GET_4_BYTES(gpt_header + PARTITION_COUNT_OFFSET) * pentry_size;
 
-    pentries = (uint8_t *) calloc(1, pentries_array_size);
+    pentries = (uint8_t *) kcalloc(1, pentries_array_size, GFP_KERNEL);
     if (pentries == NULL) {
-        fprintf(stderr,
-                    "Failed to alloc memory for GPT partition entries array\n");
+        pr_err("Failed to alloc memory for GPT partition entries array");
         r = -1;
         goto EXIT;
     }
@@ -340,7 +326,7 @@ static int gpt2_set_boot_chain(int fd, enum boot_chain boot)
 
     crc = sparse_crc32(0, pentries, pentries_array_size);
     if (GET_4_BYTES(gpt_header + PARTITION_CRC_OFFSET) != crc) {
-        fprintf(stderr, "Primary GPT partition entries array CRC invalid\n");
+        pr_err("Primary GPT partition entries array CRC invalid");
         r = -1;
         goto EXIT;
     }
@@ -378,9 +364,9 @@ static int gpt2_set_boot_chain(int fd, enum boot_chain boot)
 
 EXIT:
     if(gpt_header)
-            free(gpt_header);
+            kfree(gpt_header);
     if (pentries)
-            free(pentries);
+            kfree(pentries);
     return r;
 }
 
@@ -397,7 +383,7 @@ EXIT:
  *
  *  ==========================================================================
  */
-static int gpt_get_state(int fd, enum gpt_instance gpt, enum gpt_state *state)
+static int gpt_get_state(struct file *fd, enum gpt_instance gpt, enum gpt_state *state)
 {
     int64_t gpt_header_offset;
     uint32_t gpt_header_size;
@@ -407,28 +393,27 @@ static int gpt_get_state(int fd, enum gpt_instance gpt, enum gpt_state *state)
 
     *state = GPT_OK;
 
-    if (ioctl(fd, BLKSSZGET, &blk_size) != 0) {
-            fprintf(stderr, "Failed to get GPT device block size: %s\n",
-                            strerror(errno));
+    if (fd->f_op->unlocked_ioctl(fd, BLKSSZGET, (unsigned long) &blk_size) != 0) {
+            pr_err("Failed to get GPT device block size");
             goto error;
     }
-    gpt_header = (uint8_t*)malloc(blk_size);
+    gpt_header = (uint8_t*)kmalloc(blk_size, GFP_KERNEL);
     if (!gpt_header) {
-            fprintf(stderr, "gpt_get_state:Failed to alloc memory for header\n");
+            pr_err("gpt_get_state:Failed to alloc memory for header");
             goto error;
     }
     if (gpt == PRIMARY_GPT)
         gpt_header_offset = blk_size;
     else {
-        gpt_header_offset = lseek64(fd, 0, SEEK_END) - blk_size;
+        gpt_header_offset = fd->f_op->llseek(fd, 0, SEEK_END) - blk_size;
         if (gpt_header_offset < 0) {
-            fprintf(stderr, "gpt_get_state:Seek to end of GPT part fail\n");
+            pr_err("gpt_get_state:Seek to end of GPT part fail");
             goto error;
         }
     }
 
     if (blk_rw(fd, 0, gpt_header_offset, gpt_header, blk_size)) {
-        fprintf(stderr, "gpt_get_state: blk_rw failed\n");
+        pr_err("gpt_get_state: blk_rw failed");
         goto error;
     }
     if (memcmp(gpt_header, GPT_SIGNATURE, sizeof(GPT_SIGNATURE)))
@@ -440,11 +425,11 @@ static int gpt_get_state(int fd, enum gpt_instance gpt, enum gpt_state *state)
     PUT_4_BYTES(gpt_header + HEADER_CRC_OFFSET, 0);
     if (sparse_crc32(0, gpt_header, gpt_header_size) != crc)
         *state = GPT_BAD_CRC;
-    free(gpt_header);
+    kfree(gpt_header);
     return 0;
 error:
     if (gpt_header)
-            free(gpt_header);
+            kfree(gpt_header);
     return -1;
 }
 
@@ -463,7 +448,7 @@ error:
  *
  *  ==========================================================================
  */
-static int gpt_set_state(int fd, enum gpt_instance gpt, enum gpt_state state)
+static int gpt_set_state(struct file *fd, enum gpt_instance gpt, enum gpt_state state)
 {
     int64_t gpt_header_offset;
     uint32_t gpt_header_size;
@@ -471,27 +456,26 @@ static int gpt_set_state(int fd, enum gpt_instance gpt, enum gpt_state state)
     uint32_t crc;
     uint32_t blk_size = 0;
 
-    if (ioctl(fd, BLKSSZGET, &blk_size) != 0) {
-            fprintf(stderr, "Failed to get GPT device block size: %s\n",
-                            strerror(errno));
+    if (fd->f_op->unlocked_ioctl(fd, BLKSSZGET, (unsigned long) &blk_size) != 0) {
+            pr_err("Failed to get GPT device block size");
             goto error;
     }
-    gpt_header = (uint8_t*)malloc(blk_size);
+    gpt_header = (uint8_t*)kmalloc(blk_size, GFP_KERNEL);
     if (!gpt_header) {
-            fprintf(stderr, "Failed to alloc memory for gpt header\n");
+            pr_err("Failed to alloc memory for gpt header");
             goto error;
     }
     if (gpt == PRIMARY_GPT)
         gpt_header_offset = blk_size;
     else {
-        gpt_header_offset = lseek64(fd, 0, SEEK_END) - blk_size;
+        gpt_header_offset = fd->f_op->llseek(fd, 0, SEEK_END) - blk_size;
         if (gpt_header_offset < 0) {
-            fprintf(stderr, "Failed to seek to end of GPT device\n");
+            pr_err("Failed to seek to end of GPT device");
             goto error;
         }
     }
     if (blk_rw(fd, 0, gpt_header_offset, gpt_header, blk_size)) {
-        fprintf(stderr, "Failed to r/w gpt header\n");
+        pr_err("Failed to r/w gpt header");
         goto error;
     }
     if (state == GPT_OK)
@@ -499,7 +483,7 @@ static int gpt_set_state(int fd, enum gpt_instance gpt, enum gpt_state state)
     else if (state == GPT_BAD_SIGNATURE)
         *gpt_header = 0;
     else {
-        fprintf(stderr, "gpt_set_state: Invalid state\n");
+        pr_err("gpt_set_state: Invalid state");
         goto error;
     }
 
@@ -511,13 +495,13 @@ static int gpt_set_state(int fd, enum gpt_instance gpt, enum gpt_state state)
     PUT_4_BYTES(gpt_header + HEADER_CRC_OFFSET, crc);
 
     if (blk_rw(fd, 1, gpt_header_offset, gpt_header, blk_size)) {
-        fprintf(stderr, "gpt_set_state: blk write failed\n");
+        pr_err("gpt_set_state: blk write failed");
         goto error;
     }
     return 0;
 error:
     if(gpt_header)
-           free(gpt_header);
+           kfree(gpt_header);
     return -1;
 }
 
@@ -531,18 +515,17 @@ int get_scsi_node_from_bootdevice(const char *bootdev_path,
         struct dirent *de;
         int node_found = 0;
         if (!bootdev_path || !sg_node_path) {
-                fprintf(stderr, "%s : invalid argument\n",
+                pr_err("%s : invalid argument",
                                  __func__);
                 goto error;
         }
         if (readlink(bootdev_path, real_path, sizeof(real_path) - 1) < 0) {
-                        fprintf(stderr, "failed to resolve link for %s(%s)\n",
-                                        bootdev_path,
-                                        strerror(errno));
+                        pr_err("failed to resolve link for %s",
+                                        bootdev_path);
                         goto error;
         }
         if(strlen(real_path) < PATH_TRUNCATE_LOC + 1){
-            fprintf(stderr, "Unrecognized path :%s:\n",
+            pr_err("Unrecognized path :%s:",
                            real_path);
             goto error;
         }
@@ -550,7 +533,7 @@ int get_scsi_node_from_bootdevice(const char *bootdev_path,
         //the XBL lun we truncate the name.
         real_path[PATH_TRUNCATE_LOC] = '\0';
         if(strlen(real_path) < LUN_NAME_START_LOC + 1){
-            fprintf(stderr, "Unrecognized truncated path :%s:\n",
+            pr_err("Unrecognized truncated path :%s:",
                            real_path);
             goto error;
         }
@@ -562,10 +545,9 @@ int get_scsi_node_from_bootdevice(const char *bootdev_path,
                         &real_path[LUN_NAME_START_LOC]);
         scsi_dir = opendir(sg_dir_path);
         if (!scsi_dir) {
-                fprintf(stderr, "%s : Failed to open %s(%s)\n",
+                pr_err("%s : Failed to open %s",
                                 __func__,
-                                sg_dir_path,
-                                strerror(errno));
+                                sg_dir_path);
                 goto error;
         }
         while((de = readdir(scsi_dir))) {
@@ -576,7 +558,7 @@ int get_scsi_node_from_bootdevice(const char *bootdev_path,
                                         buf_size -1,
                                         "/dev/%s",
                                         de->d_name);
-                          fprintf(stderr, "%s:scsi generic node is :%s:\n",
+                          pr_err("%s:scsi generic node is :%s:",
                                           __func__,
                                           sg_node_path);
                           node_found = 1;
@@ -584,7 +566,7 @@ int get_scsi_node_from_bootdevice(const char *bootdev_path,
                 }
         }
         if(!node_found) {
-                fprintf(stderr,"%s: Unable to locate scsi generic node\n",
+                pr_err("%s: Unable to locate scsi generic node",
                                __func__);
                 goto error;
         }
@@ -598,14 +580,14 @@ error:
 
 int set_boot_lun(char *sg_dev, uint8_t boot_lun_id)
 {
-        int fd = -1;
+        struct file *fd = NULL;
         int rc;
         struct ufs_ioctl_query_data *data = NULL;
         size_t ioctl_data_size = sizeof(struct ufs_ioctl_query_data) + UFS_ATTR_DATA_SIZE;
 
-        data = (struct ufs_ioctl_query_data*)malloc(ioctl_data_size);
+        data = (struct ufs_ioctl_query_data*)kmalloc(ioctl_data_size, GFP_KERNEL);
         if (!data) {
-                fprintf(stderr, "%s: Failed to alloc query data struct\n",
+                pr_err("%s: Failed to alloc query data struct",
                                 __func__);
                 goto error;
         }
@@ -614,29 +596,24 @@ int set_boot_lun(char *sg_dev, uint8_t boot_lun_id)
         data->idn = QUERY_ATTR_IDN_BOOT_LU_EN;
         data->buf_size = UFS_ATTR_DATA_SIZE;
         data->buffer[0] = boot_lun_id;
-        fd = open(sg_dev, O_RDWR);
-        if (fd < 0) {
-                fprintf(stderr, "%s: Failed to open %s(%s)\n",
+        fd = file_open_name(sg_dev, O_RDWR);
+        if (fd == NULL) {
+                pr_err("%s: Failed to open %s",
                                 __func__,
-                                sg_dev,
-                                strerror(errno));
+                                sg_dev);
                 goto error;
         }
-        rc = ioctl(fd, UFS_IOCTL_QUERY, data);
+        rc = fd->f_op->unlocked_ioctl(fd, UFS_IOCTL_QUERY, (unsigned long) data);
         if (rc) {
-                fprintf(stderr, "%s: UFS query ioctl failed(%s)\n",
-                                __func__,
-                                strerror(errno));
+                pr_err("%s: UFS query ioctl failed",
+                                __func__);
                 goto error;
         }
-        close(fd);
-        free(data);
+        kfree(data);
         return 0;
 error:
-        if (fd >= 0)
-                close(fd);
         if (data)
-                free(data);
+                kfree(data);
         return -1;
 }
 
@@ -659,7 +636,7 @@ error:
 //the boot lun to either LUNA or LUNB
 int gpt_utils_set_xbl_boot_partition(enum boot_chain chain)
 {
-        struct stat st;
+        struct kstat st;
         ///sys/block/sdX/device/scsi_generic/
         char sg_dev_node[PATH_MAX] = {0};
         uint8_t boot_lun_id = 0;
@@ -667,53 +644,52 @@ int gpt_utils_set_xbl_boot_partition(enum boot_chain chain)
 
         if (chain == BACKUP_BOOT) {
                 boot_lun_id = BOOT_LUN_B_ID;
-                if (!stat(XBL_BACKUP, &st))
+                if (!vfs_stat(XBL_BACKUP, &st))
                         boot_dev = XBL_BACKUP;
-                else if (!stat(XBL_AB_SECONDARY, &st))
+                else if (!vfs_stat(XBL_AB_SECONDARY, &st))
                         boot_dev = XBL_AB_SECONDARY;
                 else {
-                        fprintf(stderr, "%s: Failed to locate secondary xbl\n",
+                        pr_err("%s: Failed to locate secondary xbl",
                                         __func__);
                         goto error;
                 }
         } else if (chain == NORMAL_BOOT) {
                 boot_lun_id = BOOT_LUN_A_ID;
-                if (!stat(XBL_PRIMARY, &st))
+                if (!vfs_stat(XBL_PRIMARY, &st))
                         boot_dev = XBL_PRIMARY;
-                else if (!stat(XBL_AB_PRIMARY, &st))
+                else if (!vfs_stat(XBL_AB_PRIMARY, &st))
                         boot_dev = XBL_AB_PRIMARY;
                 else {
-                        fprintf(stderr, "%s: Failed to locate primary xbl\n",
+                        pr_err("%s: Failed to locate primary xbl",
                                         __func__);
                         goto error;
                 }
         } else {
-                fprintf(stderr, "%s: Invalid boot chain id\n", __func__);
+                pr_err("%s: Invalid boot chain id", __func__);
                 goto error;
         }
         //We need either both xbl and xblbak or both xbl_a and xbl_b to exist at
         //the same time. If not the current configuration is invalid.
-        if((stat(XBL_PRIMARY, &st) ||
-                                stat(XBL_BACKUP, &st)) &&
-                        (stat(XBL_AB_PRIMARY, &st) ||
-                         stat(XBL_AB_SECONDARY, &st))) {
-                fprintf(stderr, "%s:primary/secondary XBL prt not found(%s)\n",
-                                __func__,
-                                strerror(errno));
+        if((vfs_stat(XBL_PRIMARY, &st) ||
+                                vfs_stat(XBL_BACKUP, &st)) &&
+                        (vfs_stat(XBL_AB_PRIMARY, &st) ||
+                         vfs_stat(XBL_AB_SECONDARY, &st))) {
+                pr_err("%s:primary/secondary XBL prt not found",
+                                __func__);
                 goto error;
         }
-        fprintf(stderr, "%s: setting %s lun as boot lun\n",
+        pr_err("%s: setting %s lun as boot lun",
                         __func__,
                         boot_dev);
         if (get_scsi_node_from_bootdevice(boot_dev,
                                 sg_dev_node,
                                 sizeof(sg_dev_node))) {
-                fprintf(stderr, "%s: Failed to get scsi node path for xblbak\n",
+                pr_err("%s: Failed to get scsi node path for xblbak",
                                 __func__);
                 goto error;
         }
         if (set_boot_lun(sg_dev_node, boot_lun_id)) {
-                fprintf(stderr, "%s: Failed to set xblbak as boot partition\n",
+                pr_err("%s: Failed to set xblbak as boot partition",
                                 __func__);
                 goto error;
         }
@@ -722,223 +698,23 @@ error:
         return -1;
 }
 
-int gpt_utils_is_ufs_device()
-{
-    char bootdevice[PROPERTY_VALUE_MAX] = {0};
-    property_get("ro.boot.bootdevice", bootdevice, "N/A");
-    if (strlen(bootdevice) < strlen(".ufshc") + 1)
-        return 0;
-    return (!strncmp(&bootdevice[strlen(bootdevice) - strlen(".ufshc")],
-                            ".ufshc",
-                            sizeof(".ufshc")));
-}
-//dev_path is the path to the block device that contains the GPT image that
-//needs to be updated. This would be the device which holds one or more critical
-//boot partitions and their backups. In the case of EMMC this function would
-//be invoked only once on /dev/block/mmcblk1 since it holds the GPT image
-//containing all the partitions For UFS devices it could potentially be
-//invoked multiple times, once for each LUN containing critical image(s) and
-//their backups
-int prepare_partitions(enum boot_update_stage stage, const char *dev_path)
-{
-    int r = 0;
-    int fd = -1;
-    int is_ufs = gpt_utils_is_ufs_device();
-    enum gpt_state gpt_prim, gpt_second;
-    enum boot_update_stage internal_stage;
-    struct stat xbl_partition_stat;
-    struct stat ufs_dir_stat;
-
-    if (!dev_path) {
-        fprintf(stderr, "%s: Invalid dev_path\n",
-                        __func__);
-        r = -1;
-        goto EXIT;
-    }
-    fd = open(dev_path, O_RDWR);
-    if (fd < 0) {
-        fprintf(stderr, "%s: Opening '%s' failed: %s\n",
-                        __func__,
-                       BLK_DEV_FILE,
-                       strerror(errno));
-        r = -1;
-        goto EXIT;
-    }
-    r = gpt_get_state(fd, PRIMARY_GPT, &gpt_prim) ||
-        gpt_get_state(fd, SECONDARY_GPT, &gpt_second);
-    if (r) {
-        fprintf(stderr, "%s: Getting GPT headers state failed\n",
-                        __func__);
-        goto EXIT;
-    }
-
-    /* These 2 combinations are unexpected and unacceptable */
-    if (gpt_prim == GPT_BAD_CRC || gpt_second == GPT_BAD_CRC) {
-        fprintf(stderr, "%s: GPT headers CRC corruption detected, aborting\n",
-                        __func__);
-        r = -1;
-        goto EXIT;
-    }
-    if (gpt_prim == GPT_BAD_SIGNATURE && gpt_second == GPT_BAD_SIGNATURE) {
-        fprintf(stderr, "%s: Both GPT headers corrupted, aborting\n",
-                        __func__);
-        r = -1;
-        goto EXIT;
-    }
-
-    /* Check internal update stage according GPT headers' state */
-    if (gpt_prim == GPT_OK && gpt_second == GPT_OK)
-        internal_stage = UPDATE_MAIN;
-    else if (gpt_prim == GPT_BAD_SIGNATURE)
-        internal_stage = UPDATE_BACKUP;
-    else if (gpt_second == GPT_BAD_SIGNATURE)
-        internal_stage = UPDATE_FINALIZE;
-    else {
-        fprintf(stderr, "%s: Abnormal GPTs state: primary (%d), secondary (%d), "
-                "aborting\n", __func__, gpt_prim, gpt_second);
-        r = -1;
-        goto EXIT;
-    }
-
-    /* Stage already set - ready for update, exitting */
-    if ((int) stage == (int) internal_stage - 1)
-        goto EXIT;
-    /* Unexpected stage given */
-    if (stage != internal_stage) {
-        r = -1;
-        goto EXIT;
-    }
-
-    switch (stage) {
-    case UPDATE_MAIN:
-            if (is_ufs) {
-                if(stat(XBL_PRIMARY, &xbl_partition_stat)||
-                                stat(XBL_BACKUP, &xbl_partition_stat)){
-                        //Non fatal error. Just means this target does not
-                        //use XBL but relies on sbl whose update is handled
-                        //by the normal methods.
-                        fprintf(stderr, "%s: xbl part not found(%s).Assuming sbl in use\n",
-                                        __func__,
-                                        strerror(errno));
-                } else {
-                        //Switch the boot lun so that backup boot LUN is used
-                        r = gpt_utils_set_xbl_boot_partition(BACKUP_BOOT);
-                        if(r){
-                                fprintf(stderr, "%s: Failed to set xbl backup partition as boot\n",
-                                                __func__);
-                                goto EXIT;
-                        }
-                }
-        }
-        //Fix up the backup GPT table so that it actually points to
-        //the backup copy of the boot critical images
-        fprintf(stderr, "%s: Preparing for primary partition update\n",
-                        __func__);
-        r = gpt2_set_boot_chain(fd, BACKUP_BOOT);
-        if (r) {
-            if (r < 0)
-                fprintf(stderr,
-                                "%s: Setting secondary GPT to backup boot failed\n",
-                                __func__);
-            /* No backup partitions - do not corrupt GPT, do not flag error */
-            else
-                r = 0;
-            goto EXIT;
-        }
-        //corrupt the primary GPT so that the backup(which now points to
-        //the backup boot partitions is used)
-        r = gpt_set_state(fd, PRIMARY_GPT, GPT_BAD_SIGNATURE);
-        if (r) {
-            fprintf(stderr, "%s: Corrupting primary GPT header failed\n",
-                            __func__);
-            goto EXIT;
-        }
-        break;
-    case UPDATE_BACKUP:
-        if (is_ufs) {
-                if(stat(XBL_PRIMARY, &xbl_partition_stat)||
-                                stat(XBL_BACKUP, &xbl_partition_stat)){
-                        //Non fatal error. Just means this target does not
-                        //use XBL but relies on sbl whose update is handled
-                        //by the normal methods.
-                        fprintf(stderr, "%s: xbl part not found(%s).Assuming sbl in use\n",
-                                        __func__,
-                                        strerror(errno));
-                } else {
-                        //Switch the boot lun so that backup boot LUN is used
-                        r = gpt_utils_set_xbl_boot_partition(NORMAL_BOOT);
-                        if(r) {
-                                fprintf(stderr, "%s: Failed to set xbl backup partition as boot\n",
-                                                __func__);
-                                goto EXIT;
-                        }
-                }
-        }
-        //Fix the primary GPT header so that is used
-        fprintf(stderr, "%s: Preparing for backup partition update\n",
-                        __func__);
-        r = gpt_set_state(fd, PRIMARY_GPT, GPT_OK);
-        if (r) {
-            fprintf(stderr, "%s: Fixing primary GPT header failed\n",
-                             __func__);
-            goto EXIT;
-        }
-        //Corrupt the scondary GPT header
-        r = gpt_set_state(fd, SECONDARY_GPT, GPT_BAD_SIGNATURE);
-        if (r) {
-            fprintf(stderr, "%s: Corrupting secondary GPT header failed\n",
-                            __func__);
-            goto EXIT;
-        }
-        break;
-    case UPDATE_FINALIZE:
-        //Undo the changes we had made in the UPDATE_MAIN stage so that the
-        //primary/backup GPT headers once again point to the same set of
-        //partitions
-        fprintf(stderr, "%s: Finalizing partitions\n",
-                        __func__);
-        r = gpt2_set_boot_chain(fd, NORMAL_BOOT);
-        if (r < 0) {
-            fprintf(stderr, "%s: Setting secondary GPT to normal boot failed\n",
-                            __func__);
-            goto EXIT;
-        }
-
-        r = gpt_set_state(fd, SECONDARY_GPT, GPT_OK);
-        if (r) {
-            fprintf(stderr, "%s: Fixing secondary GPT header failed\n",
-                            __func__);
-            goto EXIT;
-        }
-        break;
-    default:;
-    }
-
-EXIT:
-    if (fd >= 0) {
-       fsync(fd);
-       close(fd);
-    }
-    return r;
-}
-
 int add_lun_to_update_list(char *lun_path, struct update_data *dat)
 {
         uint32_t i = 0;
-        struct stat st;
+        struct kstat st;
         if (!lun_path || !dat){
-                fprintf(stderr, "%s: Invalid data",
+                pr_err("%s: Invalid data",
                                 __func__);
                 return -1;
         }
-        if (stat(lun_path, &st)) {
-                fprintf(stderr, "%s: Unable to access %s. Skipping adding to list",
+        if (vfs_stat(lun_path, &st)) {
+                pr_err("%s: Unable to access %s. Skipping adding to list",
                                 __func__,
                                 lun_path);
                 return -1;
         }
         if (dat->num_valid_entries == 0) {
-                fprintf(stderr, "%s: Copying %s into lun_list[%d]\n",
+                pr_err("%s: Copying %s into lun_list[%d]",
                                 __func__,
                                 lun_path,
                                 i);
@@ -956,7 +732,7 @@ int add_lun_to_update_list(char *lun_path, struct update_data *dat)
                                 return 0;
                         }
                 }
-                fprintf(stderr, "%s: Copying %s into lun_list[%d]\n",
+                pr_err("%s: Copying %s into lun_list[%d]",
                                 __func__,
                                 lun_path,
                                 dat->num_valid_entries);
@@ -968,101 +744,19 @@ int add_lun_to_update_list(char *lun_path, struct update_data *dat)
         return 0;
 }
 
-int prepare_boot_update(enum boot_update_stage stage)
-{
-        int r, fd;
-        int is_ufs = gpt_utils_is_ufs_device();
-        struct stat ufs_dir_stat;
-        struct update_data data;
-        int rcode = 0;
-        uint32_t i = 0;
-        int is_error = 0;
-        const char ptn_swap_list[][MAX_GPT_NAME_SIZE] = { PTN_SWAP_LIST };
-        //Holds /dev/block/bootdevice/by-name/*bak entry
-        char buf[PATH_MAX] = {0};
-        //Holds the resolved path of the symlink stored in buf
-        char real_path[PATH_MAX] = {0};
-
-        if (!is_ufs) {
-                //emmc device. Just pass in path to mmcblk0
-                return prepare_partitions(stage, BLK_DEV_FILE);
-        } else {
-                //Now we need to find the list of LUNs over
-                //which the boot critical images are spread
-                //and set them up for failsafe updates.To do
-                //this we find out where the symlinks for the
-                //each of the paths under
-                ///dev/block/bootdevice/by-name/PTN_SWAP_LIST
-                //actually point to.
-                fprintf(stderr, "%s: Running on a UFS device\n",
-                                __func__);
-                memset(&data, '\0', sizeof(struct update_data));
-                for (i=0; i < ARRAY_SIZE(ptn_swap_list); i++) {
-                        //XBL on UFS does not follow the convention
-                        //of being loaded based on well known GUID'S.
-                        //We take care of switching the UFS boot LUN
-                        //explicitly later on.
-                        if (!strncmp(ptn_swap_list[i],
-                                                PTN_XBL,
-                                                strlen(PTN_XBL)))
-                                continue;
-                        snprintf(buf, sizeof(buf),
-                                        "%s/%sbak",
-                                        BOOT_DEV_DIR,
-                                        ptn_swap_list[i]);
-                        if (stat(buf, &ufs_dir_stat)) {
-                                continue;
-                        }
-                        if (readlink(buf, real_path, sizeof(real_path) - 1) < 0)
-                        {
-                                fprintf(stderr, "%s: readlink error. Skipping %s",
-                                                __func__,
-                                                strerror(errno));
-                        } else {
-                              if(strlen(real_path) < PATH_TRUNCATE_LOC + 1){
-                                    fprintf(stderr, "Unknown path.Skipping :%s:\n",
-                                                real_path);
-                                } else {
-                                    real_path[PATH_TRUNCATE_LOC] = '\0';
-                                    add_lun_to_update_list(real_path, &data);
-                                }
-                        }
-                        memset(buf, '\0', sizeof(buf));
-                        memset(real_path, '\0', sizeof(real_path));
-                }
-                for (i=0; i < data.num_valid_entries; i++) {
-                        fprintf(stderr, "%s: Preparing %s for update stage %d\n",
-                                        __func__,
-                                        data.lun_list[i],
-                                        stage);
-                        rcode = prepare_partitions(stage, data.lun_list[i]);
-                        if (rcode != 0)
-                        {
-                                fprintf(stderr, "%s: Failed to prepare %s.Continuing..\n",
-                                                __func__,
-                                                data.lun_list[i]);
-                                is_error = 1;
-                        }
-                }
-        }
-        if (is_error)
-                return -1;
-        return 0;
-}
-
 //Given a parttion name(eg: rpm) get the path to the block device that
 //represents the GPT disk the partition resides on. In the case of emmc it
 //would be the default emmc dev(/dev/block/mmcblk0). In the case of UFS we look
 //through the /dev/block/bootdevice/by-name/ tree for partname, and resolve
 //the path to the LUN from there.
-static int get_dev_path_from_partition_name(const char *partname,
+int get_dev_path_from_partition_name(const char *partname,
                 char *buf,
                 size_t buflen)
 {
-        struct stat st;
+        struct kstat st;
         char path[PATH_MAX] = {0};
         if (!partname || !buf || buflen < ((PATH_TRUNCATE_LOC) + 1)) {
-                ALOGE("%s: Invalid argument", __func__);
+                pr_err("%s: Invalid argument", __func__);
                 goto error;
         }
         if (gpt_utils_is_ufs_device()) {
@@ -1071,7 +765,7 @@ static int get_dev_path_from_partition_name(const char *partname,
                                 "%s/%s",
                                 BOOT_DEV_DIR,
                                 partname);
-                if (stat(path, &st)) {
+                if (vfs_stat(path, &st)) {
                         goto error;
                 }
                 if (readlink(path, buf, buflen) < 0)
@@ -1089,56 +783,17 @@ error:
         return -1;
 }
 
-int gpt_utils_get_partition_map(vector<string>& ptn_list,
-                map<string, vector<string>>& partition_map) {
-        char devpath[PATH_MAX] = {'\0'};
-        map<string, vector<string>>::iterator it;
-        if (ptn_list.size() < 1) {
-                fprintf(stderr, "%s: Invalid ptn list\n", __func__);
-                goto error;
-        }
-        //Go through the passed in list
-        for (uint32_t i = 0; i < ptn_list.size(); i++)
-        {
-                //Key in the map is the path to the device that holds the
-                //partition
-                if (get_dev_path_from_partition_name(ptn_list[i].c_str(),
-                                devpath,
-                                sizeof(devpath))) {
-                        //Not necessarily an error. The partition may just
-                        //not be present.
-                        continue;
-                }
-                string path = devpath;
-                it = partition_map.find(path);
-                if (it != partition_map.end()) {
-                        it->second.push_back(ptn_list[i]);
-                } else {
-                        vector<string> str_vec;
-                        str_vec.push_back( ptn_list[i]);
-                        partition_map.insert(pair<string, vector<string>>
-                                        (path, str_vec));
-                }
-                memset(devpath, '\0', sizeof(devpath));
-        }
-        return 0;
-error:
-        return -1;
-}
-
 //Get the block size of the disk represented by decsriptor fd
-static uint32_t gpt_get_block_size(int fd)
+static uint32_t gpt_get_block_size(struct file *fd)
 {
         uint32_t block_size = 0;
-        if (fd < 0) {
-                ALOGE("%s: invalid descriptor",
+        if (fd == NULL) {
+                pr_err("%s: invalid descriptor",
                                 __func__);
                 goto error;
         }
-        if (ioctl(fd, BLKSSZGET, &block_size) != 0) {
-                ALOGE("%s: Failed to get GPT dev block size : %s",
-                                __func__,
-                                strerror(errno));
+        if (fd->f_op->unlocked_ioctl(fd, BLKSSZGET, (unsigned long) &block_size) != 0) {
+                pr_err("%s: Failed to get GPT dev block size", __func__);
                 goto error;
         }
         return block_size;
@@ -1148,31 +803,31 @@ error:
 
 //Write the GPT header present in the passed in buffer back to the
 //disk represented by fd
-static int gpt_set_header(uint8_t *gpt_header, int fd,
+static int gpt_set_header(uint8_t *gpt_header, struct file *fd,
                 enum gpt_instance instance)
 {
         uint32_t block_size = 0;
         off64_t gpt_header_offset = 0;
-        if (!gpt_header || fd < 0) {
-                ALOGE("%s: Invalid arguments",
+        if (!gpt_header || fd == NULL) {
+                pr_err("%s: Invalid arguments",
                                 __func__);
                 goto error;
         }
         block_size = gpt_get_block_size(fd);
         if (block_size == 0) {
-                ALOGE("%s: Failed to get block size", __func__);
+                pr_err("%s: Failed to get block size", __func__);
                 goto error;
         }
         if (instance == PRIMARY_GPT)
                 gpt_header_offset = block_size;
         else
-                gpt_header_offset = lseek64(fd, 0, SEEK_END) - block_size;
+                gpt_header_offset = fd->f_op->llseek(fd, 0, SEEK_END) - block_size;
         if (gpt_header_offset <= 0) {
-                ALOGE("%s: Failed to get gpt header offset",__func__);
+                pr_err("%s: Failed to get gpt header offset",__func__);
                 goto error;
         }
         if (blk_rw(fd, 1, gpt_header_offset, gpt_header, block_size)) {
-                ALOGE("%s: Failed to write back GPT header", __func__);
+                pr_err("%s: Failed to write back GPT header", __func__);
                 goto error;
         }
         return 0;
@@ -1187,62 +842,58 @@ static uint8_t* gpt_get_header(const char *partname, enum gpt_instance instance)
         char devpath[PATH_MAX] = {0};
         int64_t hdr_offset = 0;
         uint32_t block_size = 0;
-        int fd = -1;
+        struct file *fd = NULL;
         if (!partname) {
-                ALOGE("%s: Invalid partition name", __func__);
+                pr_err("%s: Invalid partition name", __func__);
                 goto error;
         }
         if (get_dev_path_from_partition_name(partname, devpath, sizeof(devpath))
                         != 0) {
-                ALOGE("%s: Failed to resolve path for %s",
+                pr_err("%s: Failed to resolve path for %s",
                                 __func__,
                                 partname);
                 goto error;
         }
-        fd = open(devpath, O_RDWR);
-        if (fd < 0) {
-                ALOGE("%s: Failed to open %s : %s",
+        fd = file_open_name(devpath, O_RDWR);
+        if (fd == NULL) {
+                pr_err("%s: Failed to open %s",
                                 __func__,
-                                devpath,
-                                strerror(errno));
+                                devpath);
                 goto error;
         }
         block_size = gpt_get_block_size(fd);
         if (block_size == 0)
         {
-                ALOGE("%s: Failed to get gpt block size for %s",
+                pr_err("%s: Failed to get gpt block size for %s",
                                 __func__,
                                 partname);
                 goto error;
         }
 
-        hdr = (uint8_t*)malloc(block_size);
+        hdr = (uint8_t*)kmalloc(block_size, GFP_KERNEL);
         if (!hdr) {
-                ALOGE("%s: Failed to allocate memory for gpt header",
+                pr_err("%s: Failed to allocate memory for gpt header",
                                 __func__);
         }
         if (instance == PRIMARY_GPT)
                 hdr_offset = block_size;
         else {
-                hdr_offset = lseek64(fd, 0, SEEK_END) - block_size;
+                hdr_offset = fd->f_op->llseek(fd, 0, SEEK_END) - block_size;
         }
         if (hdr_offset < 0) {
-                ALOGE("%s: Failed to get gpt header offset",
+                pr_err("%s: Failed to get gpt header offset",
                                 __func__);
                 goto error;
         }
         if (blk_rw(fd, 0, hdr_offset, hdr, block_size)) {
-                ALOGE("%s: Failed to read GPT header from device",
+                pr_err("%s: Failed to read GPT header from device",
                                 __func__);
                 goto error;
         }
-        close(fd);
         return hdr;
 error:
-        if (fd >= 0)
-                close(fd);
         if (hdr)
-                free(hdr);
+                kfree(hdr);
         return NULL;
 }
 
@@ -1250,7 +901,7 @@ error:
 //passed in buffer which contains the gpt header.
 //The fd here is the descriptor for the 'disk' which
 //holds the partition
-static uint8_t* gpt_get_pentry_arr(uint8_t *hdr, int fd)
+static uint8_t* gpt_get_pentry_arr(uint8_t *hdr, struct file *fd)
 {
         uint64_t pentries_start = 0;
         uint32_t pentry_size = 0;
@@ -1259,16 +910,16 @@ static uint8_t* gpt_get_pentry_arr(uint8_t *hdr, int fd)
         uint8_t *pentry_arr = NULL;
         int rc = 0;
         if (!hdr) {
-                ALOGE("%s: Invalid header", __func__);
+                pr_err("%s: Invalid header", __func__);
                 goto error;
         }
-        if (fd < 0) {
-                ALOGE("%s: Invalid fd", __func__);
+        if (fd == NULL) {
+                pr_err("%s: Invalid fd", __func__);
                 goto error;
         }
         block_size = gpt_get_block_size(fd);
         if (!block_size) {
-                ALOGE("%s: Failed to get gpt block size for",
+                pr_err("%s: Failed to get gpt block size for",
                                 __func__);
                 goto error;
         }
@@ -1276,9 +927,9 @@ static uint8_t* gpt_get_pentry_arr(uint8_t *hdr, int fd)
         pentry_size = GET_4_BYTES(hdr + PENTRY_SIZE_OFFSET);
         pentries_arr_size =
                 GET_4_BYTES(hdr + PARTITION_COUNT_OFFSET) * pentry_size;
-        pentry_arr = (uint8_t*)calloc(1, pentries_arr_size);
+        pentry_arr = (uint8_t*)kcalloc(1, pentries_arr_size, GFP_KERNEL);
         if (!pentry_arr) {
-                ALOGE("%s: Failed to allocate memory for partition array",
+                pr_err("%s: Failed to allocate memory for partition array",
                                 __func__);
                 goto error;
         }
@@ -1287,31 +938,31 @@ static uint8_t* gpt_get_pentry_arr(uint8_t *hdr, int fd)
                         pentry_arr,
                         pentries_arr_size);
         if (rc) {
-                ALOGE("%s: Failed to read partition entry array",
+                pr_err("%s: Failed to read partition entry array",
                                 __func__);
                 goto error;
         }
         return pentry_arr;
 error:
         if (pentry_arr)
-                free(pentry_arr);
+                kfree(pentry_arr);
         return NULL;
 }
 
-static int gpt_set_pentry_arr(uint8_t *hdr, int fd, uint8_t* arr)
+static int gpt_set_pentry_arr(uint8_t *hdr, struct file *fd, uint8_t* arr)
 {
         uint32_t block_size = 0;
         uint64_t pentries_start = 0;
         uint32_t pentry_size = 0;
         uint32_t pentries_arr_size = 0;
         int rc = 0;
-        if (!hdr || fd < 0 || !arr) {
-                ALOGE("%s: Invalid argument", __func__);
+        if (!hdr || fd == NULL || !arr) {
+                pr_err("%s: Invalid argument", __func__);
                 goto error;
         }
         block_size = gpt_get_block_size(fd);
         if (!block_size) {
-                ALOGE("%s: Failed to get gpt block size for",
+                pr_err("%s: Failed to get gpt block size for",
                                 __func__);
                 goto error;
         }
@@ -1324,7 +975,7 @@ static int gpt_set_pentry_arr(uint8_t *hdr, int fd, uint8_t* arr)
                         arr,
                         pentries_arr_size);
         if (rc) {
-                ALOGE("%s: Failed to read partition entry array",
+                pr_err("%s: Failed to read partition entry array",
                                 __func__);
                 goto error;
         }
@@ -1339,9 +990,9 @@ error:
 struct gpt_disk * gpt_disk_alloc()
 {
         struct gpt_disk *disk;
-        disk = (struct gpt_disk *)malloc(sizeof(struct gpt_disk));
+        disk = (struct gpt_disk *)kmalloc(sizeof(struct gpt_disk), GFP_KERNEL);
         if (!disk) {
-                ALOGE("%s: Failed to allocate memory", __func__);
+                pr_err("%s: Failed to allocate memory", __func__);
                 goto end;
         }
         memset(disk, 0, sizeof(struct gpt_disk));
@@ -1355,14 +1006,14 @@ void gpt_disk_free(struct gpt_disk *disk)
         if (!disk)
                 return;
         if (disk->hdr)
-                free(disk->hdr);
+                kfree(disk->hdr);
         if (disk->hdr_bak)
-                free(disk->hdr_bak);
+                kfree(disk->hdr_bak);
         if (disk->pentry_arr)
-                free(disk->pentry_arr);
+                kfree(disk->pentry_arr);
         if (disk->pentry_arr_bak)
-                free(disk->pentry_arr_bak);
-        free(disk);
+                kfree(disk->pentry_arr_bak);
+        kfree(disk);
         return;
 }
 
@@ -1371,24 +1022,24 @@ void gpt_disk_free(struct gpt_disk *disk)
 int gpt_disk_get_disk_info(const char *dev, struct gpt_disk *dsk)
 {
         struct gpt_disk *disk = NULL;
-        int fd = -1;
+        struct file *fd = NULL;
         uint32_t gpt_header_size = 0;
 
         if (!dsk || !dev) {
-                ALOGE("%s: Invalid arguments", __func__);
+                pr_err("%s: Invalid arguments", __func__);
                 goto error;
         }
         disk = dsk;
         disk->hdr = gpt_get_header(dev, PRIMARY_GPT);
         if (!disk->hdr) {
-                ALOGE("%s: Failed to get primary header", __func__);
+                pr_err("%s: Failed to get primary header", __func__);
                 goto error;
         }
         gpt_header_size = GET_4_BYTES(disk->hdr + HEADER_SIZE_OFFSET);
         disk->hdr_crc = sparse_crc32(0, disk->hdr, gpt_header_size);
         disk->hdr_bak = gpt_get_header(dev, SECONDARY_GPT);
         if (!disk->hdr_bak) {
-                ALOGE("%s: Failed to get backup header", __func__);
+                pr_err("%s: Failed to get backup header", __func__);
                 goto error;
         }
         disk->hdr_bak_crc = sparse_crc32(0, disk->hdr_bak, gpt_header_size);
@@ -1398,28 +1049,27 @@ int gpt_disk_get_disk_info(const char *dev, struct gpt_disk *dsk)
         if (get_dev_path_from_partition_name(dev,
                                 disk->devpath,
                                 sizeof(disk->devpath)) != 0) {
-                ALOGE("%s: Failed to resolve path for %s",
+                pr_err("%s: Failed to resolve path for %s",
                                 __func__,
                                 dev);
                 goto error;
         }
-        fd = open(disk->devpath, O_RDWR);
-        if (fd < 0) {
-                ALOGE("%s: Failed to open %s: %s",
+        fd = file_open_name(disk->devpath, O_RDWR);
+        if (fd == NULL) {
+                pr_err("%s: Failed to open %s",
                                 __func__,
-                                disk->devpath,
-                                strerror(errno));
+                                disk->devpath);
                 goto error;
         }
         disk->pentry_arr = gpt_get_pentry_arr(disk->hdr, fd);
         if (!disk->pentry_arr) {
-                ALOGE("%s: Failed to obtain partition entry array",
+                pr_err("%s: Failed to obtain partition entry array",
                                 __func__);
                 goto error;
         }
         disk->pentry_arr_bak = gpt_get_pentry_arr(disk->hdr_bak, fd);
         if (!disk->pentry_arr_bak) {
-                ALOGE("%s: Failed to obtain backup partition entry array",
+                pr_err("%s: Failed to obtain backup partition entry array",
                                 __func__);
                 goto error;
         }
@@ -1431,12 +1081,9 @@ int gpt_disk_get_disk_info(const char *dev, struct gpt_disk *dsk)
         disk->pentry_arr_bak_crc = GET_4_BYTES(disk->hdr_bak +
                         PARTITION_CRC_OFFSET);
         disk->block_size = gpt_get_block_size(fd);
-        close(fd);
         disk->is_initialized = GPT_DISK_INIT_MAGIC;
         return 0;
 error:
-        if (fd >= 0)
-                close(fd);
         return -1;
 }
 
@@ -1447,7 +1094,7 @@ uint8_t* gpt_disk_get_pentry(struct gpt_disk *disk,
 {
         uint8_t *ptn_arr = NULL;
         if (!disk || !partname || disk->is_initialized != GPT_DISK_INIT_MAGIC) {
-                ALOGE("%s: Invalid argument",__func__);
+                pr_err("%s: Invalid argument",__func__);
                 goto error;
         }
         ptn_arr = (instance == PRIMARY_GPT) ?
@@ -1467,7 +1114,7 @@ int gpt_disk_update_crc(struct gpt_disk *disk)
 {
         uint32_t gpt_header_size = 0;
         if (!disk || (disk->is_initialized != GPT_DISK_INIT_MAGIC)) {
-                ALOGE("%s: invalid argument", __func__);
+                pr_err("%s: invalid argument", __func__);
                 goto error;
         }
         //Recalculate the CRC of the primary partiton array
@@ -1500,47 +1147,43 @@ error:
 //Write the contents of struct gpt_disk back to the actual disk
 int gpt_disk_commit(struct gpt_disk *disk)
 {
-        int fd = -1;
+        struct file *fd = NULL;
         if (!disk || (disk->is_initialized != GPT_DISK_INIT_MAGIC)){
-                ALOGE("%s: Invalid args", __func__);
+                pr_err("%s: Invalid args", __func__);
                 goto error;
         }
-        fd = open(disk->devpath, O_RDWR);
-        if (fd < 0) {
-                ALOGE("%s: Failed to open %s: %s",
+        fd = file_open_name(disk->devpath, O_RDWR);
+        if (fd == NULL) {
+                pr_err("%s: Failed to open %s",
                                 __func__,
-                                disk->devpath,
-                                strerror(errno));
+                                disk->devpath);
                 goto error;
         }
         //Write the primary header
         if(gpt_set_header(disk->hdr, fd, PRIMARY_GPT) != 0) {
-                ALOGE("%s: Failed to update primary GPT header",
+                pr_err("%s: Failed to update primary GPT header",
                                 __func__);
                 goto error;
         }
         //Write back the primary partition array
         if (gpt_set_pentry_arr(disk->hdr, fd, disk->pentry_arr)) {
-                ALOGE("%s: Failed to write primary GPT partition arr",
+                pr_err("%s: Failed to write primary GPT partition arr",
                                 __func__);
                 goto error;
         }
         //Write back the secondary header
         if(gpt_set_header(disk->hdr_bak, fd, SECONDARY_GPT) != 0) {
-                ALOGE("%s: Failed to update secondary GPT header",
+                pr_err("%s: Failed to update secondary GPT header",
                                 __func__);
                 goto error;
         }
         //Write back the secondary partition array
         if (gpt_set_pentry_arr(disk->hdr_bak, fd, disk->pentry_arr_bak)) {
-                ALOGE("%s: Failed to write secondary GPT partition arr",
+                pr_err("%s: Failed to write secondary GPT partition arr",
                                 __func__);
                 goto error;
         }
-        close(fd);
         return 0;
 error:
-        if (fd >= 0)
-                close(fd);
         return -1;
 }
