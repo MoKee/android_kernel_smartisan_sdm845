@@ -111,7 +111,6 @@
 /******************************************************************************
  * TYPES
  ******************************************************************************/
-using namespace std;
 enum gpt_state {
     GPT_OK = 0,
     GPT_BAD_SIGNATURE,
@@ -1062,7 +1061,7 @@ static int get_dev_path_from_partition_name(const char *partname,
         struct stat st;
         char path[PATH_MAX] = {0};
         if (!partname || !buf || buflen < ((PATH_TRUNCATE_LOC) + 1)) {
-                ALOGE("%s: Invalid argument", __func__);
+                pr_err("%s: Invalid argument", __func__);
                 goto error;
         }
         if (gpt_utils_is_ufs_device()) {
@@ -1131,12 +1130,12 @@ static uint32_t gpt_get_block_size(int fd)
 {
         uint32_t block_size = 0;
         if (fd < 0) {
-                ALOGE("%s: invalid descriptor",
+                pr_err("%s: invalid descriptor",
                                 __func__);
                 goto error;
         }
         if (ioctl(fd, BLKSSZGET, &block_size) != 0) {
-                ALOGE("%s: Failed to get GPT dev block size : %s",
+                pr_err("%s: Failed to get GPT dev block size : %s",
                                 __func__,
                                 strerror(errno));
                 goto error;
@@ -1154,13 +1153,13 @@ static int gpt_set_header(uint8_t *gpt_header, int fd,
         uint32_t block_size = 0;
         off64_t gpt_header_offset = 0;
         if (!gpt_header || fd < 0) {
-                ALOGE("%s: Invalid arguments",
+                pr_err("%s: Invalid arguments",
                                 __func__);
                 goto error;
         }
         block_size = gpt_get_block_size(fd);
         if (block_size == 0) {
-                ALOGE("%s: Failed to get block size", __func__);
+                pr_err("%s: Failed to get block size", __func__);
                 goto error;
         }
         if (instance == PRIMARY_GPT)
@@ -1168,11 +1167,11 @@ static int gpt_set_header(uint8_t *gpt_header, int fd,
         else
                 gpt_header_offset = lseek64(fd, 0, SEEK_END) - block_size;
         if (gpt_header_offset <= 0) {
-                ALOGE("%s: Failed to get gpt header offset",__func__);
+                pr_err("%s: Failed to get gpt header offset",__func__);
                 goto error;
         }
         if (blk_rw(fd, 1, gpt_header_offset, gpt_header, block_size)) {
-                ALOGE("%s: Failed to write back GPT header", __func__);
+                pr_err("%s: Failed to write back GPT header", __func__);
                 goto error;
         }
         return 0;
@@ -1189,19 +1188,19 @@ static uint8_t* gpt_get_header(const char *partname, enum gpt_instance instance)
         uint32_t block_size = 0;
         int fd = -1;
         if (!partname) {
-                ALOGE("%s: Invalid partition name", __func__);
+                pr_err("%s: Invalid partition name", __func__);
                 goto error;
         }
         if (get_dev_path_from_partition_name(partname, devpath, sizeof(devpath))
                         != 0) {
-                ALOGE("%s: Failed to resolve path for %s",
+                pr_err("%s: Failed to resolve path for %s",
                                 __func__,
                                 partname);
                 goto error;
         }
         fd = open(devpath, O_RDWR);
         if (fd < 0) {
-                ALOGE("%s: Failed to open %s : %s",
+                pr_err("%s: Failed to open %s : %s",
                                 __func__,
                                 devpath,
                                 strerror(errno));
@@ -1210,7 +1209,7 @@ static uint8_t* gpt_get_header(const char *partname, enum gpt_instance instance)
         block_size = gpt_get_block_size(fd);
         if (block_size == 0)
         {
-                ALOGE("%s: Failed to get gpt block size for %s",
+                pr_err("%s: Failed to get gpt block size for %s",
                                 __func__,
                                 partname);
                 goto error;
@@ -1218,7 +1217,7 @@ static uint8_t* gpt_get_header(const char *partname, enum gpt_instance instance)
 
         hdr = (uint8_t*)malloc(block_size);
         if (!hdr) {
-                ALOGE("%s: Failed to allocate memory for gpt header",
+                pr_err("%s: Failed to allocate memory for gpt header",
                                 __func__);
         }
         if (instance == PRIMARY_GPT)
@@ -1227,12 +1226,12 @@ static uint8_t* gpt_get_header(const char *partname, enum gpt_instance instance)
                 hdr_offset = lseek64(fd, 0, SEEK_END) - block_size;
         }
         if (hdr_offset < 0) {
-                ALOGE("%s: Failed to get gpt header offset",
+                pr_err("%s: Failed to get gpt header offset",
                                 __func__);
                 goto error;
         }
         if (blk_rw(fd, 0, hdr_offset, hdr, block_size)) {
-                ALOGE("%s: Failed to read GPT header from device",
+                pr_err("%s: Failed to read GPT header from device",
                                 __func__);
                 goto error;
         }
@@ -1259,16 +1258,16 @@ static uint8_t* gpt_get_pentry_arr(uint8_t *hdr, int fd)
         uint8_t *pentry_arr = NULL;
         int rc = 0;
         if (!hdr) {
-                ALOGE("%s: Invalid header", __func__);
+                pr_err("%s: Invalid header", __func__);
                 goto error;
         }
         if (fd < 0) {
-                ALOGE("%s: Invalid fd", __func__);
+                pr_err("%s: Invalid fd", __func__);
                 goto error;
         }
         block_size = gpt_get_block_size(fd);
         if (!block_size) {
-                ALOGE("%s: Failed to get gpt block size for",
+                pr_err("%s: Failed to get gpt block size for",
                                 __func__);
                 goto error;
         }
@@ -1278,7 +1277,7 @@ static uint8_t* gpt_get_pentry_arr(uint8_t *hdr, int fd)
                 GET_4_BYTES(hdr + PARTITION_COUNT_OFFSET) * pentry_size;
         pentry_arr = (uint8_t*)calloc(1, pentries_arr_size);
         if (!pentry_arr) {
-                ALOGE("%s: Failed to allocate memory for partition array",
+                pr_err("%s: Failed to allocate memory for partition array",
                                 __func__);
                 goto error;
         }
@@ -1287,7 +1286,7 @@ static uint8_t* gpt_get_pentry_arr(uint8_t *hdr, int fd)
                         pentry_arr,
                         pentries_arr_size);
         if (rc) {
-                ALOGE("%s: Failed to read partition entry array",
+                pr_err("%s: Failed to read partition entry array",
                                 __func__);
                 goto error;
         }
@@ -1306,12 +1305,12 @@ static int gpt_set_pentry_arr(uint8_t *hdr, int fd, uint8_t* arr)
         uint32_t pentries_arr_size = 0;
         int rc = 0;
         if (!hdr || fd < 0 || !arr) {
-                ALOGE("%s: Invalid argument", __func__);
+                pr_err("%s: Invalid argument", __func__);
                 goto error;
         }
         block_size = gpt_get_block_size(fd);
         if (!block_size) {
-                ALOGE("%s: Failed to get gpt block size for",
+                pr_err("%s: Failed to get gpt block size for",
                                 __func__);
                 goto error;
         }
@@ -1324,7 +1323,7 @@ static int gpt_set_pentry_arr(uint8_t *hdr, int fd, uint8_t* arr)
                         arr,
                         pentries_arr_size);
         if (rc) {
-                ALOGE("%s: Failed to read partition entry array",
+                pr_err("%s: Failed to read partition entry array",
                                 __func__);
                 goto error;
         }
@@ -1341,7 +1340,7 @@ struct gpt_disk * gpt_disk_alloc()
         struct gpt_disk *disk;
         disk = (struct gpt_disk *)malloc(sizeof(struct gpt_disk));
         if (!disk) {
-                ALOGE("%s: Failed to allocate memory", __func__);
+                pr_err("%s: Failed to allocate memory", __func__);
                 goto end;
         }
         memset(disk, 0, sizeof(struct gpt_disk));
@@ -1375,20 +1374,20 @@ int gpt_disk_get_disk_info(const char *dev, struct gpt_disk *dsk)
         uint32_t gpt_header_size = 0;
 
         if (!dsk || !dev) {
-                ALOGE("%s: Invalid arguments", __func__);
+                pr_err("%s: Invalid arguments", __func__);
                 goto error;
         }
         disk = dsk;
         disk->hdr = gpt_get_header(dev, PRIMARY_GPT);
         if (!disk->hdr) {
-                ALOGE("%s: Failed to get primary header", __func__);
+                pr_err("%s: Failed to get primary header", __func__);
                 goto error;
         }
         gpt_header_size = GET_4_BYTES(disk->hdr + HEADER_SIZE_OFFSET);
         disk->hdr_crc = sparse_crc32(0, disk->hdr, gpt_header_size);
         disk->hdr_bak = gpt_get_header(dev, SECONDARY_GPT);
         if (!disk->hdr_bak) {
-                ALOGE("%s: Failed to get backup header", __func__);
+                pr_err("%s: Failed to get backup header", __func__);
                 goto error;
         }
         disk->hdr_bak_crc = sparse_crc32(0, disk->hdr_bak, gpt_header_size);
@@ -1398,14 +1397,14 @@ int gpt_disk_get_disk_info(const char *dev, struct gpt_disk *dsk)
         if (get_dev_path_from_partition_name(dev,
                                 disk->devpath,
                                 sizeof(disk->devpath)) != 0) {
-                ALOGE("%s: Failed to resolve path for %s",
+                pr_err("%s: Failed to resolve path for %s",
                                 __func__,
                                 dev);
                 goto error;
         }
         fd = open(disk->devpath, O_RDWR);
         if (fd < 0) {
-                ALOGE("%s: Failed to open %s: %s",
+                pr_err("%s: Failed to open %s: %s",
                                 __func__,
                                 disk->devpath,
                                 strerror(errno));
@@ -1413,13 +1412,13 @@ int gpt_disk_get_disk_info(const char *dev, struct gpt_disk *dsk)
         }
         disk->pentry_arr = gpt_get_pentry_arr(disk->hdr, fd);
         if (!disk->pentry_arr) {
-                ALOGE("%s: Failed to obtain partition entry array",
+                pr_err("%s: Failed to obtain partition entry array",
                                 __func__);
                 goto error;
         }
         disk->pentry_arr_bak = gpt_get_pentry_arr(disk->hdr_bak, fd);
         if (!disk->pentry_arr_bak) {
-                ALOGE("%s: Failed to obtain backup partition entry array",
+                pr_err("%s: Failed to obtain backup partition entry array",
                                 __func__);
                 goto error;
         }
@@ -1447,7 +1446,7 @@ uint8_t* gpt_disk_get_pentry(struct gpt_disk *disk,
 {
         uint8_t *ptn_arr = NULL;
         if (!disk || !partname || disk->is_initialized != GPT_DISK_INIT_MAGIC) {
-                ALOGE("%s: Invalid argument",__func__);
+                pr_err("%s: Invalid argument",__func__);
                 goto error;
         }
         ptn_arr = (instance == PRIMARY_GPT) ?
@@ -1467,7 +1466,7 @@ int gpt_disk_update_crc(struct gpt_disk *disk)
 {
         uint32_t gpt_header_size = 0;
         if (!disk || (disk->is_initialized != GPT_DISK_INIT_MAGIC)) {
-                ALOGE("%s: invalid argument", __func__);
+                pr_err("%s: invalid argument", __func__);
                 goto error;
         }
         //Recalculate the CRC of the primary partiton array
@@ -1502,12 +1501,12 @@ int gpt_disk_commit(struct gpt_disk *disk)
 {
         int fd = -1;
         if (!disk || (disk->is_initialized != GPT_DISK_INIT_MAGIC)){
-                ALOGE("%s: Invalid args", __func__);
+                pr_err("%s: Invalid args", __func__);
                 goto error;
         }
         fd = open(disk->devpath, O_RDWR);
         if (fd < 0) {
-                ALOGE("%s: Failed to open %s: %s",
+                pr_err("%s: Failed to open %s: %s",
                                 __func__,
                                 disk->devpath,
                                 strerror(errno));
@@ -1515,25 +1514,25 @@ int gpt_disk_commit(struct gpt_disk *disk)
         }
         //Write the primary header
         if(gpt_set_header(disk->hdr, fd, PRIMARY_GPT) != 0) {
-                ALOGE("%s: Failed to update primary GPT header",
+                pr_err("%s: Failed to update primary GPT header",
                                 __func__);
                 goto error;
         }
         //Write back the primary partition array
         if (gpt_set_pentry_arr(disk->hdr, fd, disk->pentry_arr)) {
-                ALOGE("%s: Failed to write primary GPT partition arr",
+                pr_err("%s: Failed to write primary GPT partition arr",
                                 __func__);
                 goto error;
         }
         //Write back the secondary header
         if(gpt_set_header(disk->hdr_bak, fd, SECONDARY_GPT) != 0) {
-                ALOGE("%s: Failed to update secondary GPT header",
+                pr_err("%s: Failed to update secondary GPT header",
                                 __func__);
                 goto error;
         }
         //Write back the secondary partition array
         if (gpt_set_pentry_arr(disk->hdr_bak, fd, disk->pentry_arr_bak)) {
-                ALOGE("%s: Failed to write secondary GPT partition arr",
+                pr_err("%s: Failed to write secondary GPT partition arr",
                                 __func__);
                 goto error;
         }

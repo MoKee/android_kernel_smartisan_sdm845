@@ -29,12 +29,6 @@
 
 #ifndef __GPT_UTILS_H__
 #define __GPT_UTILS_H__
-#include <vector>
-#include <string>
-#include <map>
-#ifdef __cplusplus
-extern "C" {
-#endif
 #include <unistd.h>
 #include <stdlib.h>
 /******************************************************************************
@@ -187,7 +181,4 @@ int gpt_utils_set_xbl_boot_partition(enum boot_chain chain);
 //the passed in partiton names sits on that device.
 int gpt_utils_get_partition_map(std::vector<std::string>& partition_list,
                 std::map<std::string,std::vector<std::string>>& partition_map);
-#ifdef __cplusplus
-}
-#endif
 #endif /* __GPT_UTILS_H__ */
