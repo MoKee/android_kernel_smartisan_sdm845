@@ -1626,7 +1626,7 @@ end_phe_name_store:
 ssize_t isa1200_play_phe_show(struct device *dev,
         struct device_attribute *attr, char *buf)
 {
-    int count = 0;
+    int ret = 0;
 
     stPheInfo_t *pinfo;
     stPhe_t *pphe;
@@ -1637,28 +1637,30 @@ ssize_t isa1200_play_phe_show(struct device *dev,
 
     pinfo = pIsa1200->pPheInfo;
     if (pinfo == NULL) {
-        count = sprintf(buf, "Err, PHE table is not correct!!\n");
+        pr_err("[HPT] PHE table is not correct!!\n");
         goto end_play_phe_show;
     }
 
     pphe = pIsa1200->pPhe;
     if (pphe == NULL) {
-        count = sprintf(buf, "Err, PHE buffer is not allocated!!\n");
+        pr_err("[HPT] PHE buffer is not allocated!!\n");
         goto end_play_phe_show;
     }
 
     /* invalid last */
     if (pphe[pinfo->count - 1].amp != 0) {
-        count = sprintf(buf, "Err, PHE buffer is empty (%d)!!\n",
+        pr_err("[HPT] PHE buffer is empty (%d)!!\n",
                 pphe[pinfo->count - 1].amp);
         goto end_play_phe_show;
     }
 
     if (pIsa1200->bReadyHaptic == false) {
-        count = sprintf(buf, "Err, PHE unknown file name!!\n");
+        pr_err("[HPT] PHE unknown file name!!\n");
         goto end_play_phe_show;
     }
     pIsa1200->bReadyHaptic = false;
+
+    ret = pphe[pinfo->count - 1].ms;
 
     pr_info("[HPT] Play phe name: %s, playing: %d, phe: %d\n",
             pinfo->name,
@@ -1670,12 +1672,10 @@ ssize_t isa1200_play_phe_show(struct device *dev,
 
     isa1200_player_start(pIsa1200);
 
-    count = 0;
-
 end_play_phe_show:
     mutex_unlock(&pIsa1200->lock);
 
-    return count;
+    return sprintf(buf, "%d\n", ret);
 }
 
 /* sysfs : /sys/class/leds/vibrator/state */
